@@ -26,11 +26,12 @@ jobs:
         run: |
           mkdir -p dist
           npm pack --pack-destination dist
-          mv dist/sshdeck-*.tgz dist/sshdeck.tgz
-          npm install --global ./dist/sshdeck.tgz
+          mv dist/agent-system-sshdeck-*.tgz dist/agent-system-sshdeck.tgz
+          npm install --global ./dist/agent-system-sshdeck.tgz
+          SSHDECK_HOME="$RUNNER_TEMP/sshdeck-smoke" agent-system-sshdeck host list
           SSHDECK_HOME="$RUNNER_TEMP/sshdeck-smoke" sshdeck host list
           cd dist
-          sha256sum sshdeck.tgz > SHA256SUMS
+          sha256sum agent-system-sshdeck.tgz > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: cli-release
@@ -52,4 +53,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" dist/sshdeck.tgz dist/SHA256SUMS --verify-tag --generate-notes --title "$RELEASE_TAG"
+        run: gh release create "$RELEASE_TAG" dist/agent-system-sshdeck.tgz dist/SHA256SUMS --verify-tag --generate-notes --title "$RELEASE_TAG"

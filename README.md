@@ -1,4 +1,4 @@
-# sshdeck
+# agent-system-sshdeck
 
 跨平台的本機 SSH 主機管理工具。提供 CLI、瀏覽器主機設定、SSH 登入檢查、加密金鑰生命週期、單次遠端命令、互動終端機及 Docker 能力診斷。
 
@@ -7,20 +7,28 @@
 - Node.js 20 以上；SSH 用戶端採用純 JavaScript 的 `ssh2` 套件。
 - 正式版透過 GitHub Release 的公開 HTTPS 下載安裝，不需 GitHub 登入或安裝 Git；安裝時仍需連線 npm registry 取得相依套件。
 
-安裝或更新至最新正式版（首次 Release 發佈完成後可用）：
+安裝或更新至最新正式版：
 
 ```sh
-npm install -g https://github.com/jason23452/more-opencode-server-ssh/releases/latest/download/sshdeck.tgz
-sshdeck ui
+npm install -g https://github.com/bojii-custom-harness/agent-system-sshdeck/releases/latest/download/agent-system-sshdeck.tgz
+agent-system-sshdeck ui
 ```
 
-安裝指定版本（例如 `v0.1.0`）：
+安裝指定版本（例如 `v0.1.1`）：
 
 ```sh
-npm install -g https://github.com/jason23452/more-opencode-server-ssh/releases/download/v0.1.0/sshdeck.tgz
+npm install -g https://github.com/bojii-custom-harness/agent-system-sshdeck/releases/download/v0.1.1/agent-system-sshdeck.tgz
 ```
 
-也可從 [Releases](https://github.com/jason23452/more-opencode-server-ssh/releases) 下載 `sshdeck.tgz`，再執行 `npm install -g ./sshdeck.tgz`。每版附有 `SHA256SUMS` 可核對下載檔。這是 Node.js CLI 套件，執行時需要已安裝 Node.js。
+也可從 [Releases](https://github.com/bojii-custom-harness/agent-system-sshdeck/releases) 下載 `agent-system-sshdeck.tgz`，再執行 `npm install -g ./agent-system-sshdeck.tgz`。每版附有 `SHA256SUMS` 可核對下載檔。這是 Node.js CLI 套件，執行時需要已安裝 Node.js。
+
+### 從舊版 sshdeck 升級
+
+自 `v0.1.1` 起，repository 與 npm 套件名稱改為 `agent-system-sshdeck`，主要 CLI 指令為 `agent-system-sshdeck`；保留 `sshdeck` 指令相容別名，下方既有操作範例仍可使用。
+
+若曾全域安裝舊套件，請先執行 `npm uninstall -g sshdeck`，再使用上方新網址安裝，以避免舊指令與新套件的相容別名衝突。使用者資料目錄仍為 `sshdeck`，環境變數仍為 `SSHDECK_HOME`；原有主機、金鑰與指紋信任可沿用。全域 CLI 實際安裝目錄由 npm prefix 決定，可用 `npm prefix -g` 查詢。
+
+`v0.1.0` 歷史附件仍名為 `sshdeck.tgz`；新版安裝請使用 `v0.1.1` 或以上。
 
 ### 從原始碼執行
 
@@ -33,12 +41,12 @@ npm install -g https://github.com/jason23452/more-opencode-server-ssh/releases/d
 
 GitHub Actions 在推送 `v*` tag 後核對 tag 與 `package.json` 版本、執行測試、打包並驗證 CLI 全域安裝，成功後自動建立 Release 與公開下載附件。僅接受 `v主版.次版.修訂版` 正式版；測試所需的遠端 SSH fixture 未設定時，相關 E2E 仍會 skipped。套件僅包含執行所需的 `bin/`、`lib/`、`public/` 與 npm 自動收錄的套件說明檔。
 
-首次發佈目前的 `0.1.0`（先提交本次發版流程）：
+發佈目前的 `0.1.1`（先提交版本變更；每個 tag 僅建立一次）：
 
 ```sh
 git push origin master
-git tag -a v0.1.0 -m "發佈 v0.1.0"
-git push origin v0.1.0
+git tag -a v0.1.1 -m "發佈 v0.1.1"
+git push origin v0.1.1
 ```
 
 後續發版先在乾淨的 `master` 更新版本；`npm version patch` 會同步更新 `package.json`、`package-lock.json` 並建立 commit 與 tag：
@@ -46,7 +54,7 @@ git push origin v0.1.0
 ```sh
 npm version patch -m "發佈 v%s"
 git push origin master
-git push origin v0.1.1
+git push origin v0.1.2
 ```
 
 次版／主版可改用 `npm version minor`／`npm version major`，推送對應的新 tag。每個版本使用新的 tag；可在 GitHub Actions 的 `Release CLI` 查看結果。`private: true` 僅防止誤發佈至 npm registry，不影響 HTTPS tarball 安裝。
