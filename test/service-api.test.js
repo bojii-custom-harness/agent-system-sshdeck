@@ -36,6 +36,80 @@ function cliEnvironment(server, env, standaloneHome) {
   };
 }
 
+const directoryAliasTypes = process.platform === 'win32'
+  ? [
+    { name: 'junction', type: 'junction' },
+    { name: 'directory symlink', type: 'dir', mayLackPrivilege: true },
+  ]
+  : [{ name: 'directory symlink', type: 'dir' }];
+
+for (const aliasType of directoryAliasTypes) {
+  test(`service 透過目錄 ${aliasType.name} 指向 standalone 資料時拒絕啟動且保留來源`,
+    { timeout: 20_000 }, async (t) => {
+      const temp = makeTaskTemp();
+      const standaloneHome = path.join(temp, 'standalone-data');
+      const serviceAlias = path.join(temp, 'service-data-alias');
+      const standaloneData = path.join(standaloneHome, 'hosts.json');
+      const originalBytes = Buffer.from(`${JSON.stringify([
+        { alias: 'standalone-only', hostname: '127.0.0.1', port: 2227, username: 'fixture-user' },
+      ])}\n`);
+      const originalHash = createHash('sha256').update(originalBytes).digest('hex');
+      let aliasCreated = false;
+      let server;
+      let serviceStarted = false;
+
+      try {
+        fs.mkdirSync(standaloneHome, { recursive: true });
+        fs.writeFileSync(standaloneData, originalBytes);
+        const originalFiles = fs.readdirSync(standaloneHome).sort();
+        try {
+          fs.symlinkSync(standaloneHome, serviceAlias, aliasType.type);
+          aliasCreated = true;
+        } catch (error) {
+          if (aliasType.mayLackPrivilege && ['EACCES', 'EPERM', 'UNKNOWN'].includes(error.code)) {
+            t.skip(`目前 Windows 環境無建立目錄 symlink 的權限（${error.code}）；junction 別名另有實測`);
+            return;
+          }
+          throw error;
+        }
+
+        assert.equal(fs.lstatSync(serviceAlias).isSymbolicLink(), true, '測試必須建立真實目錄別名');
+        assert.equal(fs.realpathSync.native(serviceAlias), fs.realpathSync.native(standaloneHome),
+          'service 與 standalone 路徑必須實際解析至同一目錄');
+
+        const env = {
+          ...createServiceEnv(serviceAlias),
+          SSHDECK_HOME: standaloneHome,
+        };
+        let startupError;
+        try {
+          server = await startService({ env, port: 0 });
+          serviceStarted = true;
+        } catch (error) {
+          startupError = error;
+        }
+        if (server) {
+          await server.closeAsync();
+          server = undefined;
+        }
+
+        assert.deepEqual(fs.readFileSync(standaloneData), originalBytes, '碰撞檢查不得覆寫 standalone 原始 bytes');
+        assert.equal(digest(standaloneData), originalHash, '碰撞檢查不得改變 standalone 原始 hash');
+        assert.deepEqual(fs.readdirSync(standaloneHome).sort(), originalFiles,
+          '碰撞檢查不得在 standalone 目錄生成或刪除資料');
+        assert.equal(startupError?.code || (serviceStarted ? 'SERVICE_STARTED' : 'REJECTED_WITHOUT_CODE'),
+          'SERVICE_HOME_CONFLICT', 'service 必須在讀取或寫入共用資料前以碰撞錯誤拒絕啟動');
+      } finally {
+        if (server) await server.closeAsync();
+        if (aliasCreated) fs.rmSync(serviceAlias, { recursive: true, force: true });
+        assert.equal(fs.existsSync(serviceAlias), false, '測試結束後必須移除本次目錄別名');
+        assert.equal(fs.existsSync(standaloneData), true, '移除目錄別名不得刪除其 standalone 目標');
+        fs.rmSync(temp, { recursive: true, force: true });
+        assert.equal(fs.existsSync(temp), false, '測試結束後必須移除本次隔離目錄');
+      }
+    });
+}
+
 test('service API 加密憑證、雙重認證、鎖定／重啟與損壞資料 fail-closed', { timeout: 60_000 }, async () => {
   const temp = makeTaskTemp();
   const serviceHome = path.join(temp, 'service-data');
