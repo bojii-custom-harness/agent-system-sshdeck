@@ -1,0 +1,77 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const requiredFiles = [
+  'bin/sshdeck.js',
+  'lib/service-server.js',
+  'docs/service-api.md',
+  '.opencode/skills/agent-system-sshdeck/SKILL.md',
+  '.opencode/skills/agent-system-sshdeck/references/install.md',
+];
+
+function readArgument(name) {
+  const index = process.argv.indexOf(name);
+  if (index < 0 || !process.argv[index + 1]) {
+    throw new Error(`缺少參數：${name}`);
+  }
+  return process.argv[index + 1];
+}
+
+function verifyPacklist(file) {
+  const records = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.ok(Array.isArray(records) && records.length === 1, 'npm pack 必須回傳單一套件清單');
+  const record = records[0];
+  assert.equal(record.name, 'agent-system-sshdeck');
+  assert.match(record.version, /^\d+\.\d+\.\d+$/);
+  const files = new Set(record.files.map((item) => item.path.replaceAll('\\', '/').replace(/^\.\//, '')));
+  for (const filePath of requiredFiles) {
+    assert.ok(files.has(filePath), `正式附件缺少必要檔案：${filePath}`);
+  }
+  console.log(`套件清單通過：${record.name}@${record.version}，包含 ${requiredFiles.length} 項必要檔案`);
+}
+
+function verifySourcePacklist() {
+  const npmCli = process.env.npm_execpath;
+  assert.ok(npmCli && path.isAbsolute(npmCli), '請透過 npm run verify:package 執行來源套件檢查');
+  const result = spawnSync(process.execPath, [npmCli, 'pack', '--dry-run', '--json'], {
+    cwd: path.resolve(__dirname, '..'),
+    encoding: 'utf8',
+    timeout: 120_000,
+    windowsHide: true,
+  });
+  if (result.error) throw result.error;
+  assert.equal(result.status, 0, `npm pack --dry-run 失敗：${result.stderr}`);
+  const records = JSON.parse(result.stdout);
+  const temporaryFile = path.join(require('node:os').tmpdir(), `sshdeck-packlist-${process.pid}.json`);
+  try {
+    fs.writeFileSync(temporaryFile, JSON.stringify(records), { flag: 'wx' });
+    verifyPacklist(temporaryFile);
+  } finally {
+    try { fs.unlinkSync(temporaryFile); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+}
+
+function verifyInstalled(directory) {
+  const root = path.resolve(directory);
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  assert.equal(manifest.name, 'agent-system-sshdeck');
+  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  for (const filePath of requiredFiles) {
+    assert.ok(fs.statSync(path.join(root, filePath)).isFile(), `已安裝附件缺少必要檔案：${filePath}`);
+  }
+  console.log(`已安裝套件通過：${manifest.name}@${manifest.version}，skill 與執行檔均可讀取`);
+}
+
+if (process.argv.includes('--packlist')) {
+  verifyPacklist(readArgument('--packlist'));
+} else if (process.argv.includes('--installed')) {
+  verifyInstalled(readArgument('--installed'));
+} else if (process.argv.includes('--source')) {
+  verifySourcePacklist();
+} else {
+  throw new Error('用法：node scripts/verify-release-package.js --source | --packlist <JSON> | --installed <套件目錄>');
+}

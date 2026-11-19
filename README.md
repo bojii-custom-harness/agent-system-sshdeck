@@ -20,6 +20,8 @@ agent-system-sshdeck ui
 npm install -g https://github.com/bojii-custom-harness/agent-system-sshdeck/releases/download/v0.1.1/agent-system-sshdeck.tgz
 ```
 
+套件也包含 OpenCode skill。全域安裝後可在 `npm root -g` 所列目錄下的 `agent-system-sshdeck/.opencode/skills/agent-system-sshdeck/` 取得；將此目錄複製到 OpenCode 專案的 `.opencode/skills/agent-system-sshdeck/` 即可在該專案載入。
+
 也可從 [Releases](https://github.com/bojii-custom-harness/agent-system-sshdeck/releases) 下載 `agent-system-sshdeck.tgz`，再執行 `npm install -g ./agent-system-sshdeck.tgz`。每版附有 `SHA256SUMS` 可核對下載檔。這是 Node.js CLI 套件，執行時需要已安裝 Node.js。
 
 ### 從舊版 sshdeck 升級
@@ -32,7 +34,7 @@ npm install -g https://github.com/bojii-custom-harness/agent-system-sshdeck/rele
 
 ### 從原始碼執行
 
-- 從下載／clone 的專案根目錄執行 `npm ci` 安裝相依套件；不需發佈至公開 npm registry。
+- 從下載／clone 的專案根目錄執行 `npm ci --ignore-scripts` 安裝相依套件；產品不依賴安裝生命週期腳本，也不需發佈至公開 npm registry。
 - 可直接執行 `node bin/sshdeck.js host list` 或 `node bin/sshdeck.js ui`。
 - 也可在專案根目錄執行 `npm install -g .` 安裝 CLI，之後使用 `sshdeck host list` 或 `sshdeck ui`。
 - 執行測試：`npm test`。若未設定下方整合測試環境變數，SSH／Docker E2E 測試會標示 skipped。
@@ -41,20 +43,19 @@ npm install -g https://github.com/bojii-custom-harness/agent-system-sshdeck/rele
 
 GitHub Actions 在推送 `v*` tag 後核對 tag 與 `package.json` 版本、執行測試、打包並驗證 CLI 全域安裝，成功後自動建立 Release 與公開下載附件。僅接受 `v主版.次版.修訂版` 正式版；測試所需的遠端 SSH fixture 未設定時，相關 E2E 仍會 skipped。套件包含執行所需的 `bin/`、`lib/`、`public/`、服務 API 契約 `docs/service-api.md` 與 npm 自動收錄的套件說明檔。
 
-發佈目前的 `0.1.1`（先提交版本變更；每個 tag 僅建立一次）：
+目前產品分支的套件版本是 `0.1.2` 候選；正式發布前須完成該版本附件驗證及獨立票級 review。符合授權門檻後，才可為每個正式版本建立一次 tag：
 
 ```sh
-git push origin master
-git tag -a v0.1.1 -m "發佈 v0.1.1"
-git push origin v0.1.1
+git tag -a v0.1.2 -m "發佈 v0.1.2"
+git push origin v0.1.2
 ```
 
-後續發版先在乾淨的 `master` 更新版本；`npm version patch` 會同步更新 `package.json`、`package-lock.json` 並建立 commit 與 tag：
+後續發版先在乾淨的正式分支更新版本；`npm version patch` 會同步更新 `package.json`、`package-lock.json` 並建立 commit 與 tag：
 
 ```sh
 npm version patch -m "發佈 v%s"
-git push origin master
-git push origin v0.1.2
+git push origin <正式分支>
+git push origin v0.1.3
 ```
 
 次版／主版可改用 `npm version minor`／`npm version major`，推送對應的新 tag。每個版本使用新的 tag；可在 GitHub Actions 的 `Release CLI` 查看結果。`private: true` 僅防止誤發佈至 npm registry，不影響 HTTPS tarball 安裝。
@@ -75,6 +76,20 @@ npm test
 Linux shell 可用相同變數名稱執行 `export SSHDECK_TEST_SSH_HOST=...` 等指令；macOS 的程式碼相容性路徑保留，但本輪不執行測試。完整測試 fixture 帳號、權限與各平台的執行證據詳見 `.scratch/sshdeck/issues/07-cross-platform-acceptance.md` 及前置票單。
 
 SSHDeck service protocol 與 headless CLI 的版本化 API、加密保存、認證、信任、鎖定及串流契約見 [`docs/service-api.md`](docs/service-api.md)。服務入口是 `sshdeck service start`；服務與 standalone 資料根目錄分離。CLI 需明確設定 `SSHDECK_MODE=service`、`SSHDECK_SERVICE_URL`、`SSHDECK_SERVICE_TOKEN`，錯誤時不會提示密語或回退到 standalone。服務啟動另需絕對路徑 `SSHDECK_SERVICE_HOME`、獨立 `SSHDECK_ENCRYPTION_KEY`，以及不同的 server-side `SSHDECK_UI_TOKEN`。
+
+### 服務模式管理介面
+
+服務模式的瀏覽器管理介面由 SSHDeck CLI 提供 UI adapter；它在伺服器端以 `SSHDECK_UI_TOKEN` 呼叫 service API，token 不會送入瀏覽器。此模式的登入金鑰由 service 加密保存，支援建立、匯入、關聯、檢視公鑰／手動安裝指引、信任確認與刪除；不提供互動終端機。服務端需有 `SSHDECK_SERVICE_URL` 和與 CLI token 不同的 `SSHDECK_UI_TOKEN`（至少 32 字元）。UI 預設掛載在 `/sshdeck/`，可用 `SSHDECK_BASE_PATH` 設定其他安全子路徑：
+
+```sh
+SSHDECK_MODE=service \
+SSHDECK_SERVICE_URL=http://127.0.0.1:18788 \
+SSHDECK_UI_TOKEN='<服務端 UI token>' \
+SSHDECK_BASE_PATH=/sshdeck \
+sshdeck ui --host 127.0.0.1 --port 18787
+```
+
+Windows PowerShell 可逐項設定 `$env:SSHDECK_MODE`、`$env:SSHDECK_SERVICE_URL`、`$env:SSHDECK_UI_TOKEN` 及 `$env:SSHDECK_BASE_PATH` 後執行相同 `sshdeck ui` 指令。服務 API 的 `SSHDECK_SERVICE_TOKEN` 不可拿來替代 UI token。若確有反向代理部署需求，預設仍將 UI 綁定 loopback，並在 adapter 設定精確的 `SSHDECK_UI_ALLOWED_HOSTS` 與 `SSHDECK_UI_ALLOWED_ORIGINS`（以逗號分隔，兩者須同時設定且來源 host 必須相同）；只有在必須讓 adapter 直接接受非 loopback 連線時才設定 `--host`，仍須保留精確 allowlist。代理、HTTPS、登入保護與部署責任由部署端負責；不要把未受保護的介面公開至網路。只要私鑰透過瀏覽器上傳，就應使用受信任的 HTTPS 入口；不要以 tunnel 或公開網路傳送私鑰。
 
 ## 主機設定與 SSH 檢查
 

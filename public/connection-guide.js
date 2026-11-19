@@ -2,10 +2,16 @@
   'use strict';
   const ui = window.sshdeck;
   const services = ui.services;
+  const serviceMode = window.sshdeckConfig?.mode === 'service';
   const root = document.querySelector('#connection-guide-app');
   const steps = ['連線資料', '登入金鑰', '遠端授權', '檢查連線'];
   const storageKey = 'sshdeck.connection-guide.v1';
   const state = { step: 0, alias: '', hostname: '', port: '22', username: '', keyPath: '', mode: 'new', keyChoiceSelected: false, managedKeys: null, loadingManagedKeys: false, host: null, publicKey: '', guide: '', createdKeyPath: null, authorized: false, checked: false, checkedAt: null, checkedFingerprint: null, checking: false, failure: null, storageUnavailable: false };
+  let managedKeysRevision = 0;
+  function invalidateManagedKeys() {
+    managedKeysRevision += 1;
+    state.managedKeys = null;
+  }
   const fingerprint = (h) => JSON.stringify([h.alias, h.hostname, Number(h.port), h.username, h.keyPath || null]);
   const validRecord = (r) => !!r && typeof r.alias === 'string' && typeof r.hostname === 'string' && typeof r.username === 'string'
     && Number.isInteger(Number(r.port)) && Number(r.port) >= 1 && Number(r.port) <= 65535
@@ -142,6 +148,11 @@
       }
       state.host = duplicate;
       persist();
+      if (serviceMode) {
+        if (duplicate.keyPath && !state.keyPath) { state.mode = 'existing'; state.keyPath = duplicate.keyPath; }
+        await services.refresh();
+        return true;
+      }
       if (duplicate.keyPath && !state.keyPath && duplicate.keyPath !== state.createdKeyPath) {
         state.mode = 'existing';
         state.keyPath = duplicate.keyPath;
@@ -152,7 +163,10 @@
       await services.refresh();
       return true;
     }
-    state.host = await services.send('/api/hosts', 'POST', { alias: state.alias, hostname: state.hostname, port, username: state.username, ...(state.mode === 'existing' && state.keyPath ? { keyPath: state.keyPath } : {}) });
+    state.host = await services.send('/api/hosts', 'POST', {
+      alias: state.alias, hostname: state.hostname, port, username: state.username,
+      ...(!serviceMode && state.mode === 'existing' && state.keyPath ? { keyPath: state.keyPath } : {}),
+    });
     persist();
     await services.refresh();
     return true;
@@ -175,10 +189,23 @@
           state.publicKey = result.publicKey; state.guide = result.guide;
         }
       } else {
-        if (state.mode === 'existing' && !state.keyPath) {
+        if (serviceMode && state.mode === 'existing') {
+          if (!state.keyPath) {
+            state.failure = { friendly: '請先選擇一把服務管理的登入金鑰。', detail: '' }; render(); return false;
+          }
+          if (state.host.keyPath && state.host.keyPath !== state.keyPath) {
+            state.failure = { friendly: '此主機已關聯另一把金鑰。請先到進階管理解除關聯，再重試。', detail: '' }; render(); return false;
+          }
+          if (!state.host.keyPath) {
+            const key = (state.managedKeys || []).find((item) => item.keyPath === state.keyPath);
+            if (!key) {
+              state.failure = { friendly: '找不到所選服務管理金鑰，請重新載入清單。', detail: '' }; render(); return false;
+            }
+            await services.send('/api/hosts/' + encodeURIComponent(state.alias) + '/key/link', 'POST', { keyId: key.id });
+          }
+        } else if (state.mode === 'existing' && !state.keyPath) {
           state.failure = { friendly: '請輸入 sshdeck 所在電腦上的登入金鑰路徑。', detail: '' }; render(); return false;
-        }
-        if (state.mode === 'existing' && state.host.keyPath !== state.keyPath) {
+        } else if (state.mode === 'existing' && state.host.keyPath !== state.keyPath) {
           state.host = await services.send('/api/hosts/' + encodeURIComponent(state.alias), 'PUT', { ...state.host, keyPath: state.keyPath });
         }
         const result = await services.send('/api/hosts/' + encodeURIComponent(state.alias) + '/guide');
@@ -187,7 +214,7 @@
       await services.refresh();
       state.host = ui.hosts.find((h) => h.alias === state.alias) || state.host;
       if (state.mode === 'new') state.createdKeyPath = state.host.keyPath;
-      state.managedKeys = null;
+      invalidateManagedKeys();
       return true;
     } catch (error) { state.failure = { friendly: '無法準備登入金鑰，請確認路徑與金鑰狀態後重試。', detail: error.message }; render(); return false; }
     finally { state.preparingKey = false; }
@@ -231,7 +258,8 @@
     render();
   }
   function startNewGuide() {
-    Object.assign(state, { step: 0, alias: '', hostname: '', port: '22', username: '', keyPath: '', mode: 'new', keyChoiceSelected: false, host: null, publicKey: '', guide: '', createdKeyPath: null, currentPublicKey: null, loadingCurrentKey: false, authorized: false, checked: false, checkedAt: null, checkedFingerprint: null, failure: null });
+    invalidateManagedKeys();
+    Object.assign(state, { step: 0, alias: '', hostname: '', port: '22', username: '', keyPath: '', mode: 'new', keyChoiceSelected: false, host: null, publicKey: '', guide: '', createdKeyPath: null, currentPublicKey: null, loadingCurrentKey: false, loadingManagedKeys: false, authorized: false, checked: false, checkedAt: null, checkedFingerprint: null, failure: null });
     persist();
     render();
   }
@@ -310,7 +338,18 @@
         panel.append(el('p', '正在載入已建立的金鑰…', { role: 'status' }));
         if (!state.loadingManagedKeys) {
           state.loadingManagedKeys = true;
-          services.send('/api/keys').then((keys) => { state.managedKeys = keys; }).catch((error) => { state.managedKeys = []; state.failure = { friendly: '無法載入已建立的金鑰清單。', detail: error.message }; }).finally(() => { state.loadingManagedKeys = false; if (state.step === 1) render(); });
+          const revision = managedKeysRevision;
+          services.send('/api/keys').then((keys) => {
+            if (revision === managedKeysRevision) state.managedKeys = keys;
+          }).catch((error) => {
+            if (revision === managedKeysRevision) {
+              state.managedKeys = [];
+              state.failure = { friendly: '無法載入已建立的金鑰清單。', detail: error.message };
+            }
+          }).finally(() => {
+            state.loadingManagedKeys = false;
+            if (state.step === 1) render();
+          });
         }
       } else if (state.managedKeys.length) {
         panel.append(el('p', '已建立的登入金鑰：'));
@@ -321,13 +360,17 @@
           label.append(radio, document.createTextNode(` ${key.id}${key.associatedAliases?.length ? `（目前關聯：${key.associatedAliases.join('、')}）` : ''}`)); panel.append(label);
         }
       } else if (!state.host?.keyPath) panel.append(el('p', '目前沒有已建立的 sshdeck 管理金鑰。'));
-      const details = el('details'); details.open = state.mode === 'existing' && !state.managedKeys?.some((key) => key.keyPath === state.keyPath); details.append(el('summary', '使用其他既有金鑰路徑'));
-      const existingLabel = el('label', undefined, { className: 'guide-key-choice' }); const radio = el('input', undefined, { type: 'radio', name: 'key-mode', value: 'existing-path', checked: state.keyChoiceSelected && state.mode === 'existing' && !state.managedKeys?.some((key) => key.keyPath === state.keyPath) }); radio.onchange = () => selectKey('existing', state.keyPath);
-      existingLabel.append(radio, document.createTextNode(' 使用其他既有金鑰')); details.append(existingLabel);
-      const keyPathField = field('私鑰路徑', 'keyPath', 'text', state.keyPath, '此路徑位於執行 sshdeck 的電腦，不是瀏覽器所在電腦，也不是遠端主機。');
-      keyPathField.querySelector('input').addEventListener('input', () => { readValues(); state.keyChoiceSelected = true; state.mode = 'existing'; state.checked = false; state.checkedAt = null; state.checkedFingerprint = null; state.authorized = false; state.failure = null; persist(); });
-      details.append(keyPathField);
-      panel.append(details, el('p', '公鑰可提供給遠端帳號授權；私鑰留在執行 sshdeck 的電腦。密語用來保護私鑰，請勿把私鑰或密語貼進遠端指令或分享給他人。建立新金鑰時會以安全提示要求輸入並再次確認密語。'));
+      if (!serviceMode) {
+        const details = el('details'); details.open = state.mode === 'existing' && !state.managedKeys?.some((key) => key.keyPath === state.keyPath); details.append(el('summary', '使用其他既有金鑰路徑'));
+        const existingLabel = el('label', undefined, { className: 'guide-key-choice' }); const radio = el('input', undefined, { type: 'radio', name: 'key-mode', value: 'existing-path', checked: state.keyChoiceSelected && state.mode === 'existing' && !state.managedKeys?.some((key) => key.keyPath === state.keyPath) }); radio.onchange = () => selectKey('existing', state.keyPath);
+        existingLabel.append(radio, document.createTextNode(' 使用其他既有金鑰')); details.append(existingLabel);
+        const keyPathField = field('私鑰路徑', 'keyPath', 'text', state.keyPath, '此路徑位於執行 sshdeck 的電腦，不是瀏覽器所在電腦，也不是遠端主機。');
+        keyPathField.querySelector('input').addEventListener('input', () => { readValues(); state.keyChoiceSelected = true; state.mode = 'existing'; state.checked = false; state.checkedAt = null; state.checkedFingerprint = null; state.authorized = false; state.failure = null; persist(); });
+        details.append(keyPathField);
+        panel.append(details, el('p', '公鑰可提供給遠端帳號授權；私鑰留在執行 sshdeck 的電腦。密語用來保護私鑰，請勿把私鑰或密語貼進遠端指令或分享給他人。建立新金鑰時會以安全提示要求輸入並再次確認密語。'));
+      } else {
+        panel.append(el('p', '服務模式只使用 SSHDeck service 管理的登入金鑰。私鑰與密語不會保存在瀏覽器；建立或匯入金鑰後由服務端加密保存。'));
+      }
       if (state.publicKey) { panel.append(el('p', '預期結果：已取得公鑰，下一步可在遠端帳號中授權。')); const pre = el('pre', state.publicKey); panel.append(pre, button('複製公鑰', (event) => copy(state.publicKey, event.currentTarget))); }
     } else if (state.step === 2) {
       panel.append(el('p', '目的：允許指定的遠端登入帳號接受此登入金鑰。操作位置：在目標受管主機的控制台或既有 SSH 視窗執行。'));
@@ -360,6 +403,7 @@
         const changed = fingerprint(current) !== fingerprint(state.host);
         if (changed) {
           const keyChanged = (current.keyPath || null) !== (state.host.keyPath || null);
+          if (keyChanged) invalidateManagedKeys();
           state.checked = false; state.checkedAt = null; state.checkedFingerprint = null; state.authorized = false;
           state.hostname = current.hostname; state.port = String(current.port); state.username = current.username;
           state.keyPath = current.keyPath || state.keyPath;

@@ -64,6 +64,21 @@ sshdeck ui --port 8787
 - UI 僅監聽 `127.0.0.1`。本機指的是 CLI 所在機器；在遠端或容器執行時，不把該網址當成使用者電腦可直接開啟的網址。
 - 使用者在 UI 的密語欄位解鎖；手動鎖定會清除新連線可用的密語快取，但不會中斷既有終端連線。
 
+### SSHDeck service 管理 UI
+
+服務模式 UI 由本機 UI adapter 呼叫已設定的 SSHDeck service；先確認 `SSHDECK_MODE=service`、`SSHDECK_SERVICE_URL` 與獨立的 `SSHDECK_UI_TOKEN` 已由安全部署設定提供，再執行：
+
+```sh
+SSHDECK_BASE_PATH=/sshdeck sshdeck ui --host 127.0.0.1 --port 8787
+```
+
+- service UI 預設掛載於 `/sshdeck/`；可用 `SSHDECK_BASE_PATH` 設定安全的絕對子路徑。Standalone 預設仍使用 `/`，若需掛載子路徑也使用相同設定。
+- UI token 只留在 adapter 的伺服器程序，不貼入瀏覽器、URL、截圖、對話或一般 API request。不要用 CLI 的 `SSHDECK_SERVICE_TOKEN` 取代 UI token。
+- service UI 不提供互動終端機；登入金鑰由 service 加密保管。私鑰匯入只使用受信任的 HTTPS 入口，無效格式或密語錯誤時重新選檔，不把私鑰／密語記入 localStorage。
+- 信任首次或變更的 SSH host fingerprint 前，先由可信管道核對；取消或拒絕時不執行連線。遠端公鑰安裝與撤銷仍依畫面指南由具權限的人手動操作。
+- 若使用反向代理，優先讓 adapter 僅監聽 loopback，並同時設定精確的 `SSHDECK_UI_ALLOWED_HOSTS`、`SSHDECK_UI_ALLOWED_ORIGINS`。確需非 loopback listener 時亦須精確設定這兩個 allowlist；不要直接公開未受保護的管理 UI。
+- 返回工作區參數只接受本系統 `/workspace/<project>` 或 `/workspace/<project>/session/<id>` 路徑；無效或外站值會回到 `/workspace`。不要把它當成任意 redirect 入口。
+
 ## 金鑰生命週期
 
 ```sh

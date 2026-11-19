@@ -36,6 +36,8 @@ sshdeck host list
 
 全域安裝位置用 `npm prefix -g` 查詢。安裝完成但指令找不到時，核對 Windows 的 prefix 或 Unix 的 `<prefix>/bin` 是否在 PATH；不以重新安裝或提高權限作為預設解法。
 
+正式套件也包含 `agent-system-sshdeck` skill。全域安裝後，可在 `npm root -g` 列出的目錄下，從 `agent-system-sshdeck/.opencode/skills/agent-system-sshdeck/` 取得 `SKILL.md` 及 `references/install.md`；依 OpenCode skill discovery 規則將整個 `agent-system-sshdeck` 目錄放入目標專案的 `.opencode/skills/`。
+
 若選擇下載附件後安裝，下載同版 `SHA256SUMS` 並比對檔案雜湊，再執行 `npm install -g <本機附件路徑>`。HTTPS tarball 安裝仍需要從 npm registry 取得相依套件。
 
 ## 原始碼入口

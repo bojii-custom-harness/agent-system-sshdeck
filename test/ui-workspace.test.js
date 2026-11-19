@@ -7,8 +7,8 @@ const vm = require('node:vm');
 const { startUi } = require('../bin/sshdeck.js');
 const ssh = require('../lib/ssh');
 
-// 使用外部安裝的 Playwright，避免只為介面驗證增加執行期相依套件。
-const browserModule = process.env.SSHDECK_PLAYWRIGHT_MODULE;
+// 優先使用專案開發相依；必要時可指定已安裝的 Playwright 模組位置。
+const browserModule = process.env.SSHDECK_PLAYWRIGHT_MODULE || require.resolve('playwright');
 test('建立指南資源使用版本網址並停用瀏覽器快取', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sshdeck-assets-'));
   const server = await startUi({ port: 0, dataFile: path.join(directory, 'hosts.json'), openBrowser: async () => {}, log: () => {} });

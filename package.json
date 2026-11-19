@@ -1,12 +1,13 @@
 {
   "name": "agent-system-sshdeck",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "files": [
     "bin/",
     "lib/",
     "public/",
-    "docs/service-api.md"
+    "docs/service-api.md",
+    ".opencode/skills/agent-system-sshdeck/"
   ],
   "repository": {
     "type": "git",
@@ -17,7 +18,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test --test-concurrency=1"
+    "test": "node --test --test-concurrency=1",
+    "verify:package": "node scripts/verify-release-package.js --source"
   },
   "bin": {
     "agent-system-sshdeck": "bin/sshdeck.js",
@@ -28,5 +30,8 @@
     "@xterm/xterm": "^6.0.0",
     "ssh2": "^1.17.0",
     "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "playwright": "1.64.1"
   }
 }

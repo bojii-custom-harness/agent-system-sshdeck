@@ -11,6 +11,133 @@ const { StringDecoder } = require('node:string_decoder');
 const { WebSocketServer, WebSocket } = require('ws');
 const ssh = require('../lib/ssh');
 
+function normalizeBasePath(value = '') {
+  if (typeof value !== 'string') throw new Error('SSHDECK_BASE_PATH 必須是絕對路徑');
+  if (value === '' || value === '/') return '';
+  const normalized = value.replace(/\/+$/, '');
+  if (!normalized.startsWith('/')
+    || normalized.startsWith('//')
+    || normalized.includes('\\')
+    || normalized.includes('%')
+    || normalized.includes('?')
+    || normalized.includes('#')
+    || /[\u0000-\u001f\u007f]/.test(normalized)
+    || normalized.split('/').slice(1).some((segment) => !segment || segment === '.' || segment === '..' || !/^[A-Za-z0-9._~-]+$/.test(segment))) {
+    throw new Error('SSHDECK_BASE_PATH 必須是安全的絕對路徑，例如 /sshdeck');
+  }
+  return normalized;
+}
+
+function listSetting(value, name) {
+  if (value === undefined || value === '') return [];
+  const values = value.split(',').map((item) => item.trim()).filter(Boolean);
+  if (values.some((item) => /[\s,]/.test(item))) throw new Error(`${name} 含有無效項目`);
+  return values;
+}
+
+function validateServiceUiConfig(env) {
+  if (typeof env.SSHDECK_SERVICE_URL !== 'string' || !env.SSHDECK_SERVICE_URL.trim()) {
+    throw new Error('service UI adapter 必須設定 SSHDECK_SERVICE_URL');
+  }
+  let serviceUrl;
+  try { serviceUrl = new URL(env.SSHDECK_SERVICE_URL); } catch {
+    throw new Error('SSHDECK_SERVICE_URL 格式無效');
+  }
+  if (!['http:', 'https:'].includes(serviceUrl.protocol)
+    || serviceUrl.username || serviceUrl.password || serviceUrl.search || serviceUrl.hash
+    || (serviceUrl.pathname !== '/' && serviceUrl.pathname !== '')) {
+    throw new Error('SSHDECK_SERVICE_URL 必須是無憑證、無路徑的 HTTP(S) origin');
+  }
+  if (typeof env.SSHDECK_UI_TOKEN !== 'string' || env.SSHDECK_UI_TOKEN.length < 32) {
+    throw new Error('service UI adapter 必須設定至少 32 個字元的 SSHDECK_UI_TOKEN');
+  }
+  if (env.SSHDECK_SERVICE_TOKEN && env.SSHDECK_SERVICE_TOKEN === env.SSHDECK_UI_TOKEN) {
+    throw new Error('SSHDECK_UI_TOKEN 不可與 SSHDECK_SERVICE_TOKEN 相同');
+  }
+  const allowedHosts = listSetting(env.SSHDECK_UI_ALLOWED_HOSTS, 'SSHDECK_UI_ALLOWED_HOSTS');
+  const allowedOrigins = listSetting(env.SSHDECK_UI_ALLOWED_ORIGINS, 'SSHDECK_UI_ALLOWED_ORIGINS');
+  for (const origin of allowedOrigins) {
+    let parsed;
+    try { parsed = new URL(origin); } catch { throw new Error('SSHDECK_UI_ALLOWED_ORIGINS 必須是完整 origin 清單'); }
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.origin !== origin || parsed.username || parsed.password) {
+      throw new Error('SSHDECK_UI_ALLOWED_ORIGINS 必須是精確的 HTTP(S) origin 清單');
+    }
+  }
+  if ((allowedHosts.length === 0) !== (allowedOrigins.length === 0)) {
+    throw new Error('代理部署時必須同時設定 SSHDECK_UI_ALLOWED_HOSTS 與 SSHDECK_UI_ALLOWED_ORIGINS');
+  }
+  return {
+    origin: serviceUrl.origin,
+    token: env.SSHDECK_UI_TOKEN,
+    allowedHosts: allowedHosts.map((host) => host.toLowerCase()),
+    allowedOrigins,
+  };
+}
+
+function safeReturnPath(value) {
+  const fallback = '/workspace';
+  if (typeof value !== 'string' || value.length > 2048 || !value.startsWith('/') || value.startsWith('//')
+    || value.includes('\\') || /[\u0000-\u001f\u007f]/.test(value)) return fallback;
+  let parsed;
+  try { parsed = new URL(value, 'http://sshdeck.invalid'); } catch { return fallback; }
+  if (parsed.origin !== 'http://sshdeck.invalid' || parsed.search || parsed.hash) return fallback;
+  const segments = parsed.pathname.split('/');
+  if (segments[0] !== '' || segments[1] !== 'workspace' || segments.length > 5) return fallback;
+  const decoded = [];
+  try {
+    for (const segment of segments.slice(1)) decoded.push(decodeURIComponent(segment));
+  } catch { return fallback; }
+  if (decoded.length < 1 || decoded[0] !== 'workspace'
+    || decoded.slice(1).some((segment) => !segment || segment === '.' || segment === '..'
+      || segment.includes('/') || segment.includes('\\') || segment.includes('%')
+      || /[\u0000-\u001f\u007f]/.test(segment))) return fallback;
+  if (decoded.length === 1) return fallback;
+  if (decoded.length === 2) return `/workspace/${encodeURIComponent(decoded[1])}`;
+  if (decoded.length === 4 && decoded[2] === 'session') {
+    return `/workspace/${encodeURIComponent(decoded[1])}/session/${encodeURIComponent(decoded[3])}`;
+  }
+  return fallback;
+}
+
+function trustedUiRequest(req, port, { allowedHosts = [], allowedOrigins = [] } = {}) {
+  if (allowedHosts.length) {
+    const host = String(req.headers.host || '').toLowerCase();
+    if (!allowedHosts.includes(host)) return false;
+    if (!req.headers.origin) return ['GET', 'HEAD'].includes(req.method);
+    try {
+      const origin = new URL(req.headers.origin);
+      return allowedOrigins.includes(origin.origin) && origin.host.toLowerCase() === host;
+    } catch { return false; }
+  }
+  return trustedRequest(req, port);
+}
+
+function readJsonBody(req, maxBytes = 128 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let bytes = 0;
+    req.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        reject(Object.assign(new Error('要求內容超過大小限制'), { status: 413 }));
+        req.resume();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      try {
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve(text ? JSON.parse(text) : {});
+      } catch {
+        reject(Object.assign(new Error('要求內容必須是有效 JSON'), { status: 400 }));
+      }
+    });
+    req.on('aborted', () => reject(Object.assign(new Error('要求已中斷'), { status: 400 })));
+    req.on('error', reject);
+  });
+}
+
 function dataFileFor({ platform = process.platform, env = process.env, home = os.homedir() } = {}) {
   const pathApi = platform === 'win32' ? path.win32 : path.posix;
   if (env.SSHDECK_HOME) return pathApi.join(env.SSHDECK_HOME, 'hosts.json');
@@ -350,13 +477,14 @@ const page = `<!doctype html>
 <html lang="zh-Hant">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width">
-<link rel="stylesheet" href="/assets/xterm.css">
-<link rel="stylesheet" href="/assets/workspace.css?v=2">
+<link rel="stylesheet" href="__SSHDECK_BASE_PATH__/assets/xterm.css">
+<link rel="stylesheet" href="__SSHDECK_BASE_PATH__/assets/workspace.css?v=2">
 <title>sshdeck 主機設定</title>
 <body>
 <a class="skip-link" href="#main">跳到主要內容</a>
 <aside class="sidebar">
   <p class="brand">sshdeck</p>
+  <a id="return-to-workspace" href="__SSHDECK_RETURN_TO__">返回工作區</a>
   <button id="navigation-toggle" type="button" aria-expanded="false" aria-controls="navigation">開啟導覽</button>
   <nav id="navigation" aria-label="主要導覽">
     <div role="tablist" aria-label="工作區分頁" aria-orientation="vertical">
@@ -367,6 +495,7 @@ const page = `<!doctype html>
 </aside>
 <main id="main" tabindex="-1">
 <h1>主機設定管理</h1>
+<p id="service-mode-note" hidden>服務模式：登入金鑰由 SSHDeck service 加密保管；此介面不提供互動終端機。金鑰信任與遠端公鑰安裝仍須由使用者明確確認。</p>
 <p id="error" role="alert"></p>
 <section id="hosts-panel" role="tabpanel" aria-labelledby="hosts-tab" tabindex="-1">
   <h2>主機操作</h2>
@@ -420,6 +549,15 @@ const page = `<!doctype html>
     <button id="cancel-key-create" type="button">取消</button>
   </form>
 </dialog>
+<dialog id="key-import-dialog">
+  <form id="key-import-form">
+    <label>OpenSSH 私鑰檔案 <input id="private-key-file" type="file" accept=".pem,.key,.pubkey,text/plain,application/octet-stream" required></label>
+    <label>私鑰密語（未加密請留空） <input id="import-key-passphrase" type="password" autocomplete="off"></label>
+    <p>私鑰只會傳送至目前受信任的 SSHDeck 服務，不會儲存在瀏覽器或一般回應中。</p>
+    <button type="submit">匯入登入金鑰</button>
+    <button id="cancel-key-import" type="button">取消</button>
+  </form>
+</dialog>
 <section id="key-info" aria-label="登入金鑰資訊" hidden>
   <label id="guide-username-label" hidden>指南中的遠端使用者名稱 <input id="guide-username" autocomplete="off"></label>
   <pre id="key-output"></pre>
@@ -427,10 +565,24 @@ const page = `<!doctype html>
   <button id="copy-guide" type="button" disabled>複製授權指令</button>
 </section>
 </main>
-<script src="/assets/xterm.js"></script>
-<script src="/assets/addon-fit.js"></script>
-<script src="/assets/workspace.js"></script>
+<script>window.sshdeckConfig = __SSHDECK_CONFIG__;</script>
+<script src="__SSHDECK_BASE_PATH__/assets/xterm.js"></script>
+<script src="__SSHDECK_BASE_PATH__/assets/addon-fit.js"></script>
+<script src="__SSHDECK_BASE_PATH__/assets/workspace.js"></script>
 <script>
+const sshdeckConfig = window.sshdeckConfig;
+const basePath = sshdeckConfig.basePath;
+window.sshdeckApiPath = (route) => basePath + route;
+const nativeFetch = window.fetch.bind(window);
+window.fetch = (input, options) => {
+  const source = input instanceof Request ? input.url : input;
+  const url = new URL(source, location.href);
+  if (url.origin === location.origin && basePath && (url.pathname.startsWith('/api/') || url.pathname.startsWith('/assets/'))) {
+    url.pathname = basePath + url.pathname;
+    input = input instanceof Request ? new Request(url, input) : url.href;
+  }
+  return nativeFetch(input, options);
+};
 const selectedHostActions = document.querySelector('#selected-host-actions');
 const managedKeys = document.querySelector('#managed-keys');
 const shellSessions = document.querySelector('#shell-sessions');
@@ -442,6 +594,10 @@ const keyCreateDialog = document.querySelector('#key-create-dialog');
 const keyCreateForm = document.querySelector('#key-create-form');
 const newKeyPassphrase = document.querySelector('#new-key-passphrase');
 const confirmKeyPassphrase = document.querySelector('#confirm-key-passphrase');
+const keyImportDialog = document.querySelector('#key-import-dialog');
+const keyImportForm = document.querySelector('#key-import-form');
+const privateKeyFile = document.querySelector('#private-key-file');
+const importKeyPassphrase = document.querySelector('#import-key-passphrase');
 const keyOutput = document.querySelector('#key-output');
 const copyPublicKey = document.querySelector('#copy-public-key');
 const copyGuide = document.querySelector('#copy-guide');
@@ -495,6 +651,7 @@ function askPassphrase() {
 }
 
 function askNewKeyPassphrase() {
+  if (sshdeckConfig.mode === 'service') return Promise.resolve('');
   return new Promise((resolve) => {
     let settled = false;
     const finish = (value) => {
@@ -517,6 +674,40 @@ function askNewKeyPassphrase() {
     document.querySelector('#cancel-key-create').onclick = () => finish(null);
     keyCreateDialog.showModal();
     newKeyPassphrase.focus();
+  });
+}
+
+function askPrivateKeyFile() {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      keyImportDialog.removeEventListener('cancel', cancel);
+      keyImportDialog.close();
+      importKeyPassphrase.value = '';
+      privateKeyFile.value = '';
+      resolve(value);
+    };
+    const cancel = (event) => { event.preventDefault(); finish(null); };
+    keyImportDialog.addEventListener('cancel', cancel, { once: true });
+    keyImportForm.onsubmit = async (event) => {
+      event.preventDefault();
+      const file = privateKeyFile.files?.[0];
+      if (!file) { error.textContent = '請選擇 OpenSSH 私鑰檔案'; return; }
+      try {
+        const privateKey = await file.text();
+        if (!privateKey.trim()) { error.textContent = '私鑰檔案是空的'; return; }
+        const value = { privateKey, passphrase: importKeyPassphrase.value };
+        finish(value);
+      } catch {
+        error.textContent = '無法讀取私鑰檔案，請重新選取';
+        privateKeyFile.value = '';
+      }
+    };
+    document.querySelector('#cancel-key-import').onclick = () => finish(null);
+    keyImportDialog.showModal();
+    privateKeyFile.focus();
   });
 }
 
@@ -559,6 +750,11 @@ copyGuide.onclick = async () => {
 };
 
 async function unlock(host) {
+  if (sshdeckConfig.mode === 'service') {
+    if (!confirm('SSHDeck service 目前已手動鎖定。要重新解鎖服務金鑰嗎？')) return false;
+    await send('/api/unlock', 'POST', {});
+    return true;
+  }
   const passphrase = await askPassphrase();
   if (passphrase === null) return false;
   await send('/api/unlock', 'POST', { alias: host.alias, passphrase });
@@ -575,6 +771,13 @@ async function checkHost(host, options = {}) {
     if (automatic) return { state: 'needs-unlock', error: value.error };
     if (!await unlock(host)) return;
     ({ response, value } = await request(route, 'POST', body));
+  }
+  if (response.status === 423 && value.code === 'SERVICE_LOCKED' && !automatic) {
+    if (!await unlock(host)) return;
+    ({ response, value } = await request(route, 'POST', body));
+  }
+  if (response.status === 423 && value.code === 'SERVICE_LOCKED' && automatic) {
+    return { state: 'needs-unlock', error: value.error };
   }
   if (response.status === 409 && ['HOST_TRUST_REQUIRED', 'HOST_KEY_CHANGED'].includes(value.code)) {
     if (automatic) return { state: value.code === 'HOST_KEY_CHANGED' ? 'changed' : 'untrusted', error: value.error, fingerprint: value.fingerprint };
@@ -637,7 +840,7 @@ function startShell(host, { onState = () => {} } = {}) {
   onState('connecting');
 
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  socket = new WebSocket(protocol + '//' + location.host + '/api/shell?alias=' + encodeURIComponent(host.alias));
+  socket = new WebSocket(protocol + '//' + location.host + window.sshdeckApiPath('/api/shell') + '?alias=' + encodeURIComponent(host.alias));
   socket.binaryType = 'arraybuffer';
   const sendControl = (value) => {
     if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value));
@@ -764,10 +967,14 @@ async function refresh() {
       if (port === null) return;
       const username = prompt('登入帳號', host.username);
       if (username === null) return;
-      const keyPath = prompt('既有金鑰路徑', host.keyPath || '');
-      if (keyPath === null) return;
       try {
-        await send('/api/hosts/' + encodeURIComponent(host.alias), 'PUT', { hostname, port: Number(port), username, keyPath });
+        const updated = { hostname, port: Number(port), username };
+        if (sshdeckConfig.mode !== 'service') {
+          const keyPath = prompt('既有金鑰路徑', host.keyPath || '');
+          if (keyPath === null) return;
+          updated.keyPath = keyPath;
+        }
+        await send('/api/hosts/' + encodeURIComponent(host.alias), 'PUT', updated);
         await refresh();
       } catch (reason) { error.textContent = reason.message; }
     };
@@ -827,6 +1034,25 @@ async function refresh() {
     };
 
     item.append(check, edit, remove, publicKey, guide, keyAction);
+    const importKey = document.createElement('button');
+    importKey.textContent = '匯入登入金鑰';
+    importKey.disabled = Boolean(host.keyPath);
+    importKey.onclick = async () => {
+      error.textContent = '';
+      const input = await askPrivateKeyFile();
+      if (!input) return;
+      try {
+        const result = await send('/api/hosts/' + encodeURIComponent(host.alias) + '/key/import', 'POST', input);
+        await refresh();
+        showKeyInfo(result.publicKey, result.guide);
+      } catch (reason) {
+        error.textContent = reason.message + '；可重新選取私鑰檔案後再試';
+      } finally {
+        input.privateKey = '';
+        input.passphrase = '';
+      }
+    };
+    item.append(importKey);
     if (host.keyPath && host.keyManaged) {
       const unlinkManaged = document.createElement('button');
       unlinkManaged.textContent = '解除此主機關聯';
@@ -880,7 +1106,7 @@ async function refresh() {
 }
 
 async function runRemoteCommand(host, command, controller, output, expectedFingerprint) {
-  const response = await fetch('/api/exec', {
+  let response = await fetch('/api/exec', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ alias: host.alias, command, ...(expectedFingerprint ? { expectedFingerprint } : {}) }),
@@ -888,6 +1114,10 @@ async function runRemoteCommand(host, command, controller, output, expectedFinge
   });
   if (response.status === 428) {
     if (!await unlock(host)) throw Error('已取消金鑰解鎖');
+    return runRemoteCommand(host, command, controller, output, expectedFingerprint);
+  }
+  if (response.status === 423 && sshdeckConfig.mode === 'service') {
+    if (!await unlock(host)) throw Error('已取消服務解鎖');
     return runRemoteCommand(host, command, controller, output, expectedFingerprint);
   }
   if (response.status === 409) {
@@ -951,41 +1181,303 @@ document.querySelector('#lock-keys').onclick = async () => {
 };
 
 window.sshdeck.configure({ request, send, unlock, checkHost, checkSSH: (host, options = {}) => checkHost(host, { ...options, automatic: true }), startShell, refresh, showKeyInfo, askNewKeyPassphrase });
+if (sshdeckConfig.mode === 'service') {
+  document.querySelector('#service-mode-note').hidden = false;
+  document.querySelector('#connect-host').hidden = true;
+  document.querySelector('#terminal-workspace').hidden = true;
+  document.querySelector('#lock-keys').textContent = '手動鎖定 service 金鑰';
+  document.querySelector('#lock-keys').onclick = async () => {
+    try { await send('/api/lock', 'POST', {}); error.textContent = '服務金鑰已手動鎖定；重新檢查時可明確解鎖'; }
+    catch (reason) { error.textContent = reason.message; }
+  };
+}
 window.sshdeck.on('selectionchange', (event) => { if (event.detail.reason === 'select') window.sshdeck.services.refresh().catch((reason) => { error.textContent = reason.message; }); });
 refresh().catch((reason) => { error.textContent = reason.message; document.querySelector('#hosts-loading').textContent = '無法載入受管主機，請重新整理重試。'; });
 </script>
-<script src="/assets/terminal.js"></script>
-<script src="/assets/connection-guide.js?v=2"></script>
+<script src="__SSHDECK_BASE_PATH__/assets/terminal.js"></script>
+<script src="__SSHDECK_BASE_PATH__/assets/connection-guide.js?v=2"></script>
 </body>
 </html>`;
 
-function createServer({ dataFile, port }) {
+function renderPage({ basePath = '', mode = 'standalone', returnTo = '/workspace' } = {}) {
+  const configuration = JSON.stringify({ basePath, mode })
+    .replaceAll('<', '\\u003c')
+    .replaceAll('>', '\\u003e')
+    .replaceAll('&', '\\u0026')
+    .replaceAll('\u2028', '\\u2028')
+    .replaceAll('\u2029', '\\u2029');
+  const safeReturnTo = safeReturnPath(returnTo)
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+  return page
+    .replaceAll('__SSHDECK_BASE_PATH__', basePath)
+    .replace('__SSHDECK_RETURN_TO__', safeReturnTo)
+    .replace('__SSHDECK_CONFIG__', configuration);
+}
+
+async function handleServiceUiRequest(routePath, req, res, serviceConfig, send) {
+  const serviceRequest = async (route, method = 'GET', body, signal) => fetch(`${serviceConfig.origin}${route}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${serviceConfig.token}`,
+      accept: 'application/json',
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    ...(signal ? { signal } : { signal: AbortSignal.timeout(15_000) }),
+  });
+  const readPayload = async (response) => {
+    if (response.status === 204) return null;
+    try { return await response.json(); } catch {
+      throw Object.assign(new Error('SSHDeck service 回應格式無效'), { status: 502, code: 'SERVICE_RESPONSE_INVALID' });
+    }
+  };
+  const proxyJson = async (route, method = 'GET', body, transform) => {
+    const response = await serviceRequest(route, method, body);
+    const payload = await readPayload(response);
+    return send(response.status, response.ok && transform ? transform(payload) : payload);
+  };
+  const requestJson = async () => {
+    try { return await readJsonBody(req); }
+    catch (error) { return send(error.status || 400, { error: error.message }); }
+  };
+  const aliasRoute = /^\/api\/hosts\/([^/]+)(?:\/(check|ssh-check|key(?:\/(?:create|import|link|unlink|delete))?|guide|key\/public))?$/.exec(routePath);
+  const alias = aliasRoute ? decodeURIComponent(aliasRoute[1]) : null;
+  const action = aliasRoute?.[2] || '';
+
+  if (req.method === 'GET' && routePath === '/api/hosts') {
+    const [hostsResponse, keysResponse] = await Promise.all([
+      serviceRequest('/v1/hosts'),
+      serviceRequest('/v1/keys'),
+    ]);
+    const hosts = await readPayload(hostsResponse);
+    if (!hostsResponse.ok) return send(hostsResponse.status, hosts);
+    const keys = await readPayload(keysResponse);
+    if (!keysResponse.ok) return send(keysResponse.status, keys);
+    const keyByAlias = new Map();
+    for (const record of keys) {
+      for (const associatedAlias of record.associatedAliases || []) keyByAlias.set(associatedAlias, record);
+    }
+    return send(200, hosts.map((host) => {
+      const record = keyByAlias.get(host.alias);
+      return {
+        ...host,
+        ...(record ? { keyPath: `service-key:${record.id}` } : {}),
+        keyManaged: Boolean(record),
+      };
+    }));
+  }
+  if (req.method === 'GET' && routePath === '/api/keys') {
+    return proxyJson('/v1/keys', 'GET', undefined, (records) => records.map((record) => ({
+      ...record,
+      keyPath: `service-key:${record.id}`,
+    })));
+  }
+  if (req.method === 'POST' && routePath === '/api/lock') return proxyJson('/v1/lock', 'POST', {});
+  if (req.method === 'POST' && routePath === '/api/unlock') return proxyJson('/v1/unlock', 'POST', {});
+  if (req.method === 'POST' && routePath === '/api/hosts') {
+    const body = await requestJson();
+    if (!body || res.writableEnded) return;
+    if (Object.hasOwn(body, 'keyPath')) return send(400, { code: 'INVALID_HOST', error: '服務主機不可指定本機私鑰路徑' });
+    return proxyJson('/v1/hosts', 'POST', body);
+  }
+  if (req.method === 'POST' && routePath === '/api/exec') {
+    const body = await requestJson();
+    if (!body || res.writableEnded) return;
+    if (typeof body.alias !== 'string' || !body.alias || typeof body.command !== 'string' || !body.command.trim()) {
+      return send(400, { code: 'INVALID_COMMAND', error: '請提供主機別名與遠端命令' });
+    }
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    req.once('aborted', abort);
+    res.once('close', () => { if (!res.writableEnded) abort(); });
+    try {
+      const response = await serviceRequest(`/v1/hosts/${encodeURIComponent(body.alias)}/exec`, 'POST', {
+        command: body.command,
+        ...(typeof body.expectedFingerprint === 'string' ? { expectedFingerprint: body.expectedFingerprint } : {}),
+      }, controller.signal);
+      if (!response.ok) return send(response.status, await readPayload(response));
+      res.writeHead(response.status, {
+        'content-type': response.headers.get('content-type') || 'application/x-ndjson; charset=utf-8',
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+        'x-accel-buffering': 'no',
+      });
+      if (response.body) {
+        for await (const chunk of response.body) {
+          if (res.destroyed) break;
+          if (!res.write(Buffer.from(chunk))) await new Promise((resolve) => res.once('drain', resolve));
+        }
+      }
+      if (!res.destroyed) res.end();
+    } catch (error) {
+      if (!res.destroyed && !res.headersSent) send(error.status || 502, { code: error.code || 'SERVICE_DISCONNECTED', error: error.message || 'SSHDeck service 連線中斷' });
+      else if (!res.destroyed) res.destroy(error);
+    } finally {
+      req.off('aborted', abort);
+    }
+    return;
+  }
+
+  const keyRecordRoute = /^\/api\/keys\/([^/]+)\/(public|guide|delete)$/.exec(routePath);
+  if (keyRecordRoute) {
+    const id = decodeURIComponent(keyRecordRoute[1]);
+    const actionName = keyRecordRoute[2];
+    const keysResponse = await serviceRequest('/v1/keys');
+    const keys = await readPayload(keysResponse);
+    if (!keysResponse.ok) return send(keysResponse.status, keys);
+    const record = keys.find((item) => item.id === id);
+    if (!record) return send(404, { code: 'KEY_NOT_FOUND', error: '找不到服務管理的金鑰' });
+    const guide = ssh.installationGuide(record, record.publicKey);
+    if (req.method === 'GET' && actionName !== 'delete') {
+      return send(200, actionName === 'public' ? { publicKey: record.publicKey } : { publicKey: record.publicKey, guide });
+    }
+    if (req.method === 'POST' && actionName === 'delete') {
+      if (record.associatedAliases?.length) return send(409, { code: 'KEY_IN_USE', error: '金鑰仍與主機設定關聯，請先解除所有關聯' });
+      const response = await serviceRequest(`/v1/keys/${encodeURIComponent(id)}`, 'DELETE');
+      const payload = await readPayload(response);
+      return send(response.status, response.ok ? { ...payload, publicKey: record.publicKey, guide } : payload);
+    }
+  }
+
+  if (aliasRoute) {
+    const encodedAlias = encodeURIComponent(alias);
+    if (!action && req.method === 'PUT') {
+      const body = await requestJson();
+      if (!body || res.writableEnded) return;
+      if (Object.hasOwn(body, 'alias') || Object.hasOwn(body, 'keyPath')) {
+        return send(400, { code: 'INVALID_HOST', error: '服務主機不可指定 alias 或本機私鑰路徑' });
+      }
+      return proxyJson(`/v1/hosts/${encodedAlias}`, 'PUT', body);
+    }
+    if (!action && req.method === 'DELETE') return proxyJson(`/v1/hosts/${encodedAlias}`, 'DELETE');
+    if ((action === 'check' || action === 'ssh-check') && req.method === 'POST') {
+      const body = await requestJson();
+      if (!body || res.writableEnded) return;
+      return proxyJson(`/v1/hosts/${encodedAlias}/check`, 'POST', body);
+    }
+    if ((action === 'guide' || action === 'key/public') && req.method === 'GET') {
+      const response = await serviceRequest(`/v1/hosts/${encodedAlias}/key`);
+      const payload = await readPayload(response);
+      if (!response.ok) return send(response.status, payload);
+      return send(200, action === 'key/public' ? { publicKey: payload.publicKey } : payload);
+    }
+    if (action === 'key' && req.method === 'POST') {
+      return proxyJson(`/v1/hosts/${encodedAlias}/key/create`, 'POST', {});
+    }
+    if (action === 'key/import' && req.method === 'POST') {
+      const body = await requestJson();
+      if (!body || res.writableEnded) return;
+      if (typeof body.privateKey !== 'string' || !body.privateKey.trim()
+        || (body.passphrase !== undefined && typeof body.passphrase !== 'string')) {
+        return send(400, { code: 'INVALID_KEY', error: '匯入需要 OpenSSH 私鑰檔案及可選密語' });
+      }
+      return proxyJson(`/v1/hosts/${encodedAlias}/key/import`, 'POST', body);
+    }
+    if (action === 'key/link' && req.method === 'POST') {
+      const body = await requestJson();
+      if (!body || res.writableEnded) return;
+      const keysResponse = await serviceRequest('/v1/keys');
+      const keys = await readPayload(keysResponse);
+      if (!keysResponse.ok) return send(keysResponse.status, keys);
+      const record = keys.find((item) => item.id === body.keyId || `service-key:${item.id}` === body.keyPath);
+      if (!record) return send(404, { code: 'KEY_NOT_FOUND', error: '找不到服務管理的金鑰' });
+      return proxyJson(`/v1/hosts/${encodedAlias}/key/link`, 'POST', { keyId: record.id });
+    }
+    if (action === 'key/unlink' && req.method === 'POST') return proxyJson(`/v1/hosts/${encodedAlias}/key/unlink`, 'POST', {});
+    if (action === 'key/delete' && req.method === 'POST') {
+      const keysResponse = await serviceRequest('/v1/keys');
+      const keys = await readPayload(keysResponse);
+      if (!keysResponse.ok) return send(keysResponse.status, keys);
+      const record = keys.find((item) => item.associatedAliases?.includes(alias));
+      if (!record) return send(404, { code: 'KEY_NOT_FOUND', error: '找不到此主機關聯的服務管理金鑰' });
+      if (record.associatedAliases.length > 1) return send(409, { code: 'KEY_IN_USE', error: '此金鑰仍與其他主機共用，請先解除所有關聯' });
+      const guide = ssh.installationGuide(record, record.publicKey);
+      const unlinked = await serviceRequest(`/v1/hosts/${encodedAlias}/key/unlink`, 'POST', {});
+      const unlinkPayload = await readPayload(unlinked);
+      if (!unlinked.ok) return send(unlinked.status, unlinkPayload);
+      const deleted = await serviceRequest(`/v1/keys/${encodeURIComponent(record.id)}`, 'DELETE');
+      const deletePayload = await readPayload(deleted);
+      if (!deleted.ok) {
+        return send(deleted.status, {
+          ...deletePayload,
+          error: `已解除主機關聯，但金鑰尚未刪除；請重新整理後確認狀態。${deletePayload?.error ? ` ${deletePayload.error}` : ''}`,
+        });
+      }
+      return send(deleted.status, { ...deletePayload, publicKey: record.publicKey, guide });
+    }
+  }
+
+  return send(404, { code: 'NOT_FOUND', error: '找不到路徑' });
+}
+
+function createServer({
+  dataFile,
+  port,
+  basePath = '',
+  mode = 'standalone',
+  serviceConfig,
+  allowedHosts = [],
+  allowedOrigins = [],
+}) {
   const unlockedKeys = new Map();
   const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
+  const assets = {
+    '/assets/xterm.js': [require.resolve('@xterm/xterm/lib/xterm.js', { paths: [__dirname] }), 'text/javascript'],
+    '/assets/xterm.css': [require.resolve('@xterm/xterm/css/xterm.css', { paths: [__dirname] }), 'text/css'],
+    '/assets/addon-fit.js': [require.resolve('@xterm/addon-fit/lib/addon-fit.js', { paths: [__dirname] }), 'text/javascript'],
+    '/assets/workspace.js': [path.join(__dirname, '..', 'public', 'workspace.js'), 'text/javascript'],
+    '/assets/workspace.css': [path.join(__dirname, '..', 'public', 'workspace.css'), 'text/css'],
+    '/assets/terminal.js': [path.join(__dirname, '..', 'public', 'terminal.js'), 'text/javascript'],
+    '/assets/connection-guide.js': [path.join(__dirname, '..', 'public', 'connection-guide.js'), 'text/javascript'],
+  };
   const server = http.createServer((req, res) => {
     const send = (status, value, contentType = 'application/json') => {
       res.writeHead(status, { 'content-type': `${contentType}; charset=utf-8`, 'cache-control': 'no-store' });
       res.end(contentType === 'application/json' ? JSON.stringify(value) : value);
     };
-    if (!trustedRequest(req, server.address()?.port || port)) return send(403, { error: '不允許的 Host 或 Origin' });
-    if (req.method === 'GET' && req.url === '/') return send(200, page, 'text/html');
-    const assets = {
-      '/assets/xterm.js': [path.join(__dirname, '..', 'node_modules', '@xterm', 'xterm', 'lib', 'xterm.js'), 'text/javascript'],
-      '/assets/xterm.css': [path.join(__dirname, '..', 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css'), 'text/css'],
-      '/assets/addon-fit.js': [path.join(__dirname, '..', 'node_modules', '@xterm', 'addon-fit', 'lib', 'addon-fit.js'), 'text/javascript'],
-      '/assets/workspace.js': [path.join(__dirname, '..', 'public', 'workspace.js'), 'text/javascript'],
-      '/assets/workspace.css': [path.join(__dirname, '..', 'public', 'workspace.css'), 'text/css'],
-      '/assets/terminal.js': [path.join(__dirname, '..', 'public', 'terminal.js'), 'text/javascript'],
-      '/assets/connection-guide.js': [path.join(__dirname, '..', 'public', 'connection-guide.js'), 'text/javascript'],
-    };
-    const assetPath = new URL(req.url, 'http://localhost').pathname;
+    const requestUrl = new URL(req.url, `http://127.0.0.1:${server.address()?.port || port}`);
+    if (!trustedUiRequest(req, server.address()?.port || port, { allowedHosts, allowedOrigins })) {
+      return send(403, { error: '不允許的 Host 或 Origin' });
+    }
+    if (basePath && requestUrl.pathname === basePath && req.method === 'GET') {
+      res.writeHead(308, { location: `${basePath}/${requestUrl.search}`, 'cache-control': 'no-store' });
+      return res.end();
+    }
+    if (basePath && requestUrl.pathname !== basePath && !requestUrl.pathname.startsWith(`${basePath}/`)) {
+      return send(404, { error: '找不到路徑' });
+    }
+    const routePath = basePath ? requestUrl.pathname.slice(basePath.length) || '/' : requestUrl.pathname;
+    if (req.method === 'GET' && routePath === '/') {
+      const returnTo = requestUrl.searchParams.get('returnTo') ?? requestUrl.searchParams.get('return');
+      return send(200, renderPage({ basePath, mode, returnTo }), 'text/html');
+    }
+    const assetPath = routePath;
     if (req.method === 'GET' && assets[assetPath]) {
       const [file, contentType] = assets[assetPath];
+      if (!fs.existsSync(file)) return send(404, { error: '找不到靜態資產' });
+      const stream = fs.createReadStream(file);
+      stream.once('error', () => {
+        if (res.headersSent) res.destroy();
+        else send(500, { error: '無法讀取靜態資產' });
+      });
       res.writeHead(200, { 'content-type': `${contentType}; charset=utf-8`, 'cache-control': 'no-store' });
-      fs.createReadStream(file).pipe(res);
+      stream.pipe(res);
       return;
     }
-    if (req.method === 'GET' && req.url === '/api/keys') {
+    if (mode === 'service') {
+      handleServiceUiRequest(routePath, req, res, serviceConfig, send).catch((error) => {
+        if (!res.destroyed && !res.headersSent) send(error.status || 502, {
+          code: error.code || 'SERVICE_UNAVAILABLE',
+          error: error.message || 'SSHDeck service 無法連線',
+        });
+        else if (!res.destroyed) res.destroy(error);
+      });
+      return;
+    }
+    if (req.method === 'GET' && routePath === '/api/keys') {
       try {
         const hosts = readHosts(dataFile);
         const records = ssh.listManagedKeys(dataFile).map((record) => ({
@@ -995,7 +1487,7 @@ function createServer({ dataFile, port }) {
         return send(200, records);
       } catch (error) { return send(500, { error: error.message }); }
     }
-    const managedKeyRoute = req.url.match(/^\/api\/keys\/([^/?]+)\/(public|guide|delete)$/);
+    const managedKeyRoute = routePath.match(/^\/api\/keys\/([^/?]+)\/(public|guide|delete)$/);
     if (req.method === 'GET' && managedKeyRoute && managedKeyRoute[2] !== 'delete') {
       try {
         const record = ssh.resolveManagedKey(dataFile, decodeURIComponent(managedKeyRoute[1]));
@@ -1003,7 +1495,7 @@ function createServer({ dataFile, port }) {
         return send(200, managedKeyRoute[2] === 'public' ? { publicKey } : { publicKey, guide: ssh.installationGuide(record, publicKey) });
       } catch (error) { return send(404, { error: error.message }); }
     }
-    if (req.method === 'GET' && req.url === '/api/hosts') {
+    if (req.method === 'GET' && routePath === '/api/hosts') {
       try {
         return send(200, readHosts(dataFile).map((host) => ({
           ...host,
@@ -1013,22 +1505,23 @@ function createServer({ dataFile, port }) {
       } catch (error) { return send(500, { error: error.message }); }
     }
 
-    if (req.method === 'POST' && req.url === '/api/lock') {
+    if (req.method === 'POST' && routePath === '/api/lock') {
       unlockedKeys.clear();
       res.writeHead(204, { 'cache-control': 'no-store' });
       return res.end();
     }
-    const match = req.url.match(/^\/api\/hosts\/([^/?]+)(?:\/(check|ssh-check))?$/);
+    const match = routePath.match(/^\/api\/hosts\/([^/?]+)(?:\/(check|ssh-check))?$/);
     const checking = Boolean(match && ['check', 'ssh-check'].includes(match[2]));
     const sshOnlyCheck = Boolean(match && match[2] === 'ssh-check');
-    const keyActionMatch = req.url.match(/^\/api\/hosts\/([^/?]+)\/key\/(delete|unlink)$/);
+    const keyActionMatch = routePath.match(/^\/api\/hosts\/([^/?]+)\/key\/(delete|unlink)$/);
     const managedKeyDelete = Boolean(managedKeyRoute && managedKeyRoute[2] === 'delete' && req.method === 'POST');
-    const keyPublicMatch = req.url.match(/^\/api\/hosts\/([^/?]+)\/key\/public$/);
-    const keyGuideMatch = req.url.match(/^\/api\/hosts\/([^/?]+)\/guide$/);
-    const keyCreate = req.method === 'POST' && /^\/api\/hosts\/[^/?]+\/key$/.test(req.url);
-    const collection = req.url === '/api/hosts';
-    const unlockRequest = req.method === 'POST' && req.url === '/api/unlock';
-    const executing = req.method === 'POST' && req.url === '/api/exec';
+    const keyPublicMatch = routePath.match(/^\/api\/hosts\/([^/?]+)\/key\/public$/);
+    const keyGuideMatch = routePath.match(/^\/api\/hosts\/([^/?]+)\/guide$/);
+    const keyCreate = req.method === 'POST' && /^\/api\/hosts\/[^/?]+\/key$/.test(routePath);
+    const keyImport = req.method === 'POST' && /^\/api\/hosts\/[^/?]+\/key\/import$/.test(routePath);
+    const collection = routePath === '/api/hosts';
+    const unlockRequest = req.method === 'POST' && routePath === '/api/unlock';
+    const executing = req.method === 'POST' && routePath === '/api/exec';
     if (req.method === 'GET' && (keyPublicMatch || keyGuideMatch)) {
       try {
         const alias = decodeURIComponent((keyPublicMatch || keyGuideMatch)[1]);
@@ -1039,11 +1532,11 @@ function createServer({ dataFile, port }) {
       } catch (error) { return send(400, { error: error.message }); }
     }
     const keyOperation = Boolean(keyActionMatch && req.method === 'POST');
-    if (!unlockRequest && !executing && !keyCreate && !keyOperation && !managedKeyDelete && !(collection && req.method === 'POST') && !(checking && req.method === 'POST') && !(match && !checking && ['PUT', 'DELETE'].includes(req.method))) return send(404, { error: '找不到路徑' });
+    if (!unlockRequest && !executing && !keyCreate && !keyImport && !keyOperation && !managedKeyDelete && !(collection && req.method === 'POST') && !(checking && req.method === 'POST') && !(match && !checking && ['PUT', 'DELETE'].includes(req.method))) return send(404, { error: '找不到路徑' });
     let body = '';
     req.on('data', (chunk) => {
       body += chunk;
-      if (body.length > 32_768) {
+      if (Buffer.byteLength(body, 'utf8') > 256 * 1024) {
         send(413, { error: '要求內容過大' });
         req.destroy();
       }
@@ -1139,7 +1632,7 @@ function createServer({ dataFile, port }) {
           return send(200, { deleted: true, publicKey, guide });
         }
         if (keyCreate) {
-          const keyAlias = decodeURIComponent(req.url.match(/^\/api\/hosts\/([^/?]+)\/key$/)[1]);
+          const keyAlias = decodeURIComponent(routePath.match(/^\/api\/hosts\/([^/?]+)\/key$/)[1]);
           const host = readHosts(dataFile).find((item) => item.alias === keyAlias);
           if (!host) return send(404, { error: `找不到主機：${keyAlias}` });
           if (host.keyPath) return send(409, { error: '此主機已關聯登入金鑰，請先解除關聯或刪除 sshdeck 金鑰' });
@@ -1148,6 +1641,45 @@ function createServer({ dataFile, port }) {
           catch (error) { ssh.deleteManagedKey(dataFile, made.keyPath); throw error; }
           unlockedKeys.set(made.keyPath, input.passphrase);
           return send(201, { publicKey: made.publicKey, guide: ssh.installationGuide(host, made.publicKey) });
+        }
+        if (keyImport) {
+          const keyAlias = decodeURIComponent(routePath.match(/^\/api\/hosts\/([^/?]+)\/key\/import$/)[1]);
+          const host = readHosts(dataFile).find((item) => item.alias === keyAlias);
+          if (!host) return send(404, { error: `找不到主機：${keyAlias}` });
+          if (host.keyPath) return send(409, { error: '此主機已關聯登入金鑰，請先解除關聯' });
+          if (typeof input.privateKey !== 'string' || !input.privateKey.trim()
+            || (input.passphrase !== undefined && typeof input.passphrase !== 'string')) {
+            return send(400, { code: 'INVALID_KEY', error: '匯入需要 OpenSSH 私鑰檔案及可選密語' });
+          }
+          const passphrase = input.passphrase || '';
+          let stored;
+          try {
+            const privateKey = Buffer.from(input.privateKey);
+            const parsed = ssh.parsePrivateKey(privateKey, passphrase);
+            const publicKey = `${parsed.type} ${parsed.getPublicSSH().toString('base64')}`;
+            stored = ssh.storeManagedKey(dataFile, { alias: keyAlias, privateKey, publicKey, profile: host });
+            try {
+              mutateHosts(dataFile, (hosts) => {
+                const target = hosts.find((item) => item.alias === keyAlias);
+                if (!target || target.keyPath) throw new Error('主機設定已變更，拒絕覆寫金鑰關聯');
+                target.keyPath = stored.keyPath;
+              });
+            } catch (error) {
+              ssh.deleteManagedKey(dataFile, stored.keyPath);
+              throw error;
+            }
+            unlockedKeys.set(stored.keyPath, passphrase);
+            return send(201, {
+              id: stored.id,
+              publicKey: stored.publicKey,
+              guide: ssh.installationGuide(host, stored.publicKey),
+            });
+          } catch (error) {
+            return send(error.status || 400, {
+              code: error.code || 'INVALID_KEY',
+              error: error.message || '私鑰匯入失敗',
+            });
+          }
         }
         if (unlockRequest) {
           const host = readHosts(dataFile).find((item) => item.alias === input.alias);
@@ -1229,8 +1761,14 @@ function createServer({ dataFile, port }) {
       socket.destroy();
       return;
     }
-    if (requestUrl.pathname !== '/api/shell'
-      || !trustedRequest(req, server.address()?.port || port)
+    if (basePath && (requestUrl.pathname === basePath || !requestUrl.pathname.startsWith(`${basePath}/`))) {
+      socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    const socketPath = basePath ? requestUrl.pathname.slice(basePath.length) : requestUrl.pathname;
+    if (mode !== 'standalone' || socketPath !== '/api/shell'
+      || !trustedUiRequest(req, server.address()?.port || port, { allowedHosts, allowedOrigins })
       || !req.headers.origin) {
       socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
       socket.destroy();
@@ -1402,15 +1940,50 @@ function openBrowser(url, platform = process.platform, spawnProcess = spawn) {
   });
 }
 
-async function startUi({ port = 8787, dataFile = dataFileFor(), openBrowser: browserOpener = openBrowser, log = console.log } = {}) {
+async function startUi({
+  port = 8787,
+  host = process.env.SSHDECK_UI_HOST || '127.0.0.1',
+  dataFile = dataFileFor(),
+  mode = process.env.SSHDECK_MODE === 'service' ? 'service' : 'standalone',
+  env = process.env,
+  basePath = env.SSHDECK_BASE_PATH ?? (mode === 'service' ? '/sshdeck' : ''),
+  allowedHosts = listSetting(env.SSHDECK_UI_ALLOWED_HOSTS, 'SSHDECK_UI_ALLOWED_HOSTS'),
+  allowedOrigins = listSetting(env.SSHDECK_UI_ALLOWED_ORIGINS, 'SSHDECK_UI_ALLOWED_ORIGINS'),
+  openBrowser: browserOpener = openBrowser,
+  log = console.log,
+} = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('port 必須是 0 到 65535 的整數');
-  const server = createServer({ dataFile, port });
+  if (!['standalone', 'service'].includes(mode)) throw new Error('UI 模式僅支援 standalone 或 service');
+  const normalizedBasePath = normalizeBasePath(basePath);
+  let serviceConfig;
+  if (mode === 'service') {
+    serviceConfig = validateServiceUiConfig(env);
+    if ((allowedHosts.length === 0) !== (allowedOrigins.length === 0)) {
+      throw new Error('代理部署時必須同時設定 SSHDECK_UI_ALLOWED_HOSTS 與 SSHDECK_UI_ALLOWED_ORIGINS');
+    }
+  }
+  if (!['127.0.0.1', '::1', 'localhost'].includes(host) && (!allowedHosts.length || !allowedOrigins.length)) {
+    throw new Error('非 loopback UI listener 必須明確設定 SSHDECK_UI_ALLOWED_HOSTS 與 SSHDECK_UI_ALLOWED_ORIGINS');
+  }
+  const server = createServer({
+    dataFile,
+    port,
+    basePath: normalizedBasePath,
+    mode,
+    serviceConfig,
+    allowedHosts: allowedHosts.map((value) => value.toLowerCase()),
+    allowedOrigins,
+  });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, '127.0.0.1', resolve);
+    server.listen(port, host, resolve);
   });
-  const url = `http://127.0.0.1:${server.address().port}`;
+  const displayHost = ['0.0.0.0', '::'].includes(host) ? '127.0.0.1' : host;
+  const addressHost = displayHost.includes(':') ? `[${displayHost}]` : displayHost;
+  const url = `http://${addressHost}:${server.address().port}${normalizedBasePath}${normalizedBasePath ? '/' : ''}`;
   server.url = url;
+  server.basePath = normalizedBasePath;
+  server.uiMode = mode;
   log(`sshdeck UI：${url}`);
   try {
     await browserOpener(url);
@@ -1552,13 +2125,15 @@ async function shellCommand(dataFile, args) {
   }
 }
 
-async function main(args) {
+async function main(args, { openBrowser: browserOpener } = {}) {
   if (process.env.SSHDECK_MODE === 'service') {
-    const { runCli } = require('../lib/service-client');
-    await runCli(args);
-    return;
+    if (args[0] !== 'ui') {
+      const { runCli } = require('../lib/service-client');
+      await runCli(args);
+      return;
+    }
   }
-  if (process.env.SSHDECK_MODE && process.env.SSHDECK_MODE !== 'standalone') {
+  if (process.env.SSHDECK_MODE && !['standalone', 'service'].includes(process.env.SSHDECK_MODE)) {
     throw new Error('SSHDECK_MODE 僅支援 standalone 或 service');
   }
   if (args[0] === 'service') {
@@ -1590,13 +2165,20 @@ async function main(args) {
   }
   if (args[0] === 'ui') {
     let port = 8787;
+    let host = process.env.SSHDECK_UI_HOST || '127.0.0.1';
     for (let index = 1; index < args.length; index += 1) {
-      if (args[index] !== '--port' || !args[index + 1]) throw new Error('用法：sshdeck ui [--port <連接埠>]');
-      port = Number(args[index + 1]);
+      if (!['--port', '--host'].includes(args[index]) || !args[index + 1]) {
+        throw new Error('用法：sshdeck ui [--host <位址>] [--port <連接埠>]');
+      }
+      if (args[index] === '--port') port = Number(args[index + 1]);
+      else host = args[index + 1];
       index += 1;
     }
-    await startUi({ port });
-    return;
+    return startUi({
+      port,
+      host,
+      ...(browserOpener ? { openBrowser: browserOpener } : {}),
+    });
   }
   if (args[0] === 'exec') { await execCommand(dataFileFor(), args); return; }
   if (args[0] === 'shell') { await shellCommand(dataFileFor(), args); return; }

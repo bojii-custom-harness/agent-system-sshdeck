@@ -12,6 +12,7 @@ button:disabled { cursor: default; opacity: .6; }
 .skip-link:focus { top: .5rem; }
 .sidebar { position: fixed; inset: 0 auto 0 0; width: 13rem; padding: 1.2rem; background: #172b42; color: white; }
 .brand { font-size: 1.7rem; font-weight: 700; margin: 0 0 1.5rem; }
+#return-to-workspace { display: inline-block; margin: 0 0 1rem; color: white; }
 #navigation [role="tablist"] { display: grid; gap: .6rem; }
 #navigation button { text-align: left; border-color: transparent; background: transparent; color: white; }
 #navigation button[aria-selected="true"] { background: #e7f0ff; color: #122941; font-weight: 700; }
