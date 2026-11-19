@@ -22,6 +22,12 @@ function portAvailable(port) {
   });
 }
 
+function fetchWithoutKeepAlive(url, options = {}) {
+  const headers = new Headers(options.headers);
+  headers.set('connection', 'close');
+  return fetch(url, { ...options, headers });
+}
+
 function createServiceEnv(home, secrets) {
   const env = {
     SSHDECK_SERVICE_HOME: home,
@@ -155,6 +161,7 @@ async function main() {
   };
   const previousUiEnv = new Map(Object.keys(uiEnv).map((key) => [key, process.env[key]]));
   let serviceCli;
+  let standaloneUi;
   let ui;
   let failure;
   const evidence = {
@@ -164,9 +171,11 @@ async function main() {
     servicePort,
     startedAt: new Date().toISOString(),
     status: 'running',
+    stage: 'port-preflight',
   };
 
   try {
+    evidence.stage = 'start-service-cli';
     serviceCli = startServiceCli(packageRoot, env, servicePort);
     evidence.servicePid = serviceCli.child.pid;
     const serviceUrl = await serviceCli.ready;
@@ -175,12 +184,75 @@ async function main() {
     const health = await healthResponse.json();
     assert.equal(health.status, 'ok');
 
+    evidence.stage = 'start-standalone-ui';
+    uiEnv.SSHDECK_MODE = 'standalone';
+    uiEnv.SSHDECK_BASE_PATH = '';
+    for (const [key, value] of Object.entries(uiEnv)) process.env[key] = value;
+    standaloneUi = await runCli(['ui', '--host', '127.0.0.1', '--port', String(uiPort)], {
+      openBrowser: async () => {},
+    });
+    assert.equal(standaloneUi.uiMode, 'standalone');
+    assert.equal(standaloneUi.basePath, '');
+
+    evidence.stage = 'standalone-page';
+    const standalonePage = await fetchWithoutKeepAlive(standaloneUi.url, { signal: AbortSignal.timeout(5000) });
+    assert.equal(standalonePage.status, 200);
+    const standaloneHtml = await standalonePage.text();
+    assert.match(standaloneHtml, /href="\/assets\/workspace\.css/);
+    assert.match(standaloneHtml, /src="\/assets\/workspace\.js/);
+    assert.doesNotMatch(standaloneHtml, /\/sshdeck\/assets\//);
+    for (const secret of secrets) assert.equal(standaloneHtml.includes(secret), false, 'standalone UI HTML 不得包含 service secret');
+
+    const standaloneAssets = [
+      'workspace.js',
+      'workspace.css',
+      'connection-guide.js',
+      'terminal.js',
+      'xterm.js',
+      'xterm.css',
+      'addon-fit.js',
+    ];
+    evidence.stage = 'standalone-assets';
+    for (const asset of standaloneAssets) {
+      const response = await fetchWithoutKeepAlive(new URL(`assets/${asset}`, standaloneUi.url), { signal: AbortSignal.timeout(5000) });
+      assert.equal(response.status, 200, `standalone root 資產 ${asset} 必須可取得`);
+      assert.ok((await response.arrayBuffer()).byteLength > 0, `standalone root 資產 ${asset} 不可為空`);
+    }
+
+    evidence.stage = 'standalone-api-list';
+    const standaloneHosts = await fetchWithoutKeepAlive(new URL('api/hosts', standaloneUi.url), { signal: AbortSignal.timeout(5000) });
+    assert.equal(standaloneHosts.status, 200);
+    assert.deepEqual(await standaloneHosts.json(), []);
+    const standaloneCreate = await fetchWithoutKeepAlive(new URL('api/hosts', standaloneUi.url), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ alias: 'release-smoke-standalone', hostname: '127.0.0.1', port: 22, username: 'candidate' }),
+      signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(standaloneCreate.status, 201);
+    assert.equal((await standaloneCreate.json()).alias, 'release-smoke-standalone');
+    assert.equal((await fetchWithoutKeepAlive(new URL('/sshdeck/assets/workspace.js', standaloneUi.url), { signal: AbortSignal.timeout(5000) })).status, 404);
+    assert.equal((await fetchWithoutKeepAlive(new URL('/sshdeck/api/hosts', standaloneUi.url), { signal: AbortSignal.timeout(5000) })).status, 404);
+    evidence.standaloneUi = {
+      path: new URL(standaloneUi.url).pathname,
+      assets: standaloneAssets,
+      apiCrud: 'passed',
+      mountedPathLeakage: 'none',
+    };
+    await closeServer(standaloneUi);
+    standaloneUi = null;
+    evidence.standaloneUiStopped = true;
+
+    evidence.stage = 'start-mounted-service-ui';
+    uiEnv.SSHDECK_MODE = 'service';
+    uiEnv.SSHDECK_BASE_PATH = '/sshdeck';
     uiEnv.SSHDECK_SERVICE_URL = serviceUrl;
     for (const [key, value] of Object.entries(uiEnv)) process.env[key] = value;
     ui = await runCli(['ui', '--host', '127.0.0.1', '--port', String(uiPort)], {
       openBrowser: async () => {},
     });
 
+    evidence.stage = 'mounted-page';
     const pageResponse = await fetch(ui.url, { signal: AbortSignal.timeout(5000) });
     assert.equal(pageResponse.status, 200);
     const html = await pageResponse.text();
@@ -197,6 +269,7 @@ async function main() {
       ['xterm.css', /./],
       ['addon-fit.js', /./],
     ];
+    evidence.stage = 'mounted-assets';
     for (const [asset, contentPattern] of assets) {
       const response = await fetch(new URL(`assets/${asset}`, ui.url), { signal: AbortSignal.timeout(5000) });
       assert.equal(response.status, 200, `掛載資產 ${asset} 必須可取得`);
@@ -204,6 +277,7 @@ async function main() {
       assert.match(content, contentPattern, `掛載資產 ${asset} 不可為空`);
     }
 
+    evidence.stage = 'mounted-api-list';
     const listResponse = await fetch(new URL('api/hosts', ui.url), { signal: AbortSignal.timeout(5000) });
     assert.equal(listResponse.status, 200);
     assert.deepEqual(await listResponse.json(), []);
@@ -222,6 +296,7 @@ async function main() {
     const rootApi = await fetch(new URL('/api/hosts', ui.url), { signal: AbortSignal.timeout(5000) });
     assert.equal(rootAsset.status, 404);
     assert.equal(rootApi.status, 404);
+    evidence.stage = 'all-assertions-passed';
     evidence.serviceHealth = { ...health, cliStarted: true };
     evidence.mountedUi = {
       path: new URL(ui.url).pathname,
@@ -234,9 +309,16 @@ async function main() {
   } catch (error) {
     failure = error;
     evidence.status = 'failed';
+    evidence.failureStage = evidence.stage;
     evidence.errorName = error.name;
     evidence.failure = redact(error.message, secrets);
+    if (error.cause) {
+      evidence.failureCauseName = error.cause.name;
+      if (error.cause.code) evidence.failureCauseCode = error.cause.code;
+      evidence.failureCause = redact(error.cause.message, secrets);
+    }
   } finally {
+    try { await closeServer(standaloneUi); } catch (error) { evidence.standaloneUiCleanup = redact(error.message, secrets); }
     try { await closeServer(ui); } catch (error) { evidence.uiCleanup = redact(error.message, secrets); }
     try { await stopServiceCli(serviceCli); evidence.serviceCliStopped = true; }
     catch (error) { evidence.serviceCleanup = redact(error.message, secrets); }
@@ -248,8 +330,8 @@ async function main() {
     for (const port of [uiPort, servicePort]) evidence[`port${port}Free`] = await portAvailable(port).catch(() => false);
   }
 
-  const cleanupPassed = !evidence.uiCleanup && !evidence.serviceCleanup
-    && evidence.port18787Free !== false && evidence.port18788Free !== false;
+  const cleanupPassed = !evidence.standaloneUiCleanup && !evidence.uiCleanup && !evidence.serviceCleanup
+    && evidence[`port${uiPort}Free`] !== false && evidence[`port${servicePort}Free`] !== false;
   evidence.cleanupPassed = cleanupPassed;
   evidence.finishedAt = new Date().toISOString();
   if (failure || !cleanupPassed) evidence.status = 'failed';
