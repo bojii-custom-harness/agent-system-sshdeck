@@ -151,6 +151,26 @@ test('missing and malformed private key files fail clearly and update check stat
   }
 });
 
+test('standalone host JSON cannot inject the service-only in-memory private key', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sshdeck-service-key-boundary-'));
+  try {
+    const host = {
+      alias: 'standalone',
+      hostname: '127.0.0.1',
+      port: 2227,
+      username: 'test',
+      keyPath: path.join(directory, 'missing-key'),
+      privateKey: 'unexpected-inline-private-key',
+    };
+    assert.throws(
+      () => ssh.exec(path.join(directory, 'hosts.json'), host, '', 'printf should-not-run'),
+      (error) => error.code === 'KEY_FILE_NOT_FOUND',
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('CLI secret prompt does not echo passphrase input', async () => {
   let output = '';
   const input = Readable.from(['test-secret', '\n']);

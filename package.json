@@ -5,7 +5,8 @@
   "files": [
     "bin/",
     "lib/",
-    "public/"
+    "public/",
+    "docs/service-api.md"
   ],
   "repository": {
     "type": "git",

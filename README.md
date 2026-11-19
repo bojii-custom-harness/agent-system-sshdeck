@@ -39,7 +39,7 @@ npm install -g https://github.com/bojii-custom-harness/agent-system-sshdeck/rele
 
 ### 使用 tag 發版
 
-GitHub Actions 在推送 `v*` tag 後核對 tag 與 `package.json` 版本、執行測試、打包並驗證 CLI 全域安裝，成功後自動建立 Release 與公開下載附件。僅接受 `v主版.次版.修訂版` 正式版；測試所需的遠端 SSH fixture 未設定時，相關 E2E 仍會 skipped。套件僅包含執行所需的 `bin/`、`lib/`、`public/` 與 npm 自動收錄的套件說明檔。
+GitHub Actions 在推送 `v*` tag 後核對 tag 與 `package.json` 版本、執行測試、打包並驗證 CLI 全域安裝，成功後自動建立 Release 與公開下載附件。僅接受 `v主版.次版.修訂版` 正式版；測試所需的遠端 SSH fixture 未設定時，相關 E2E 仍會 skipped。套件包含執行所需的 `bin/`、`lib/`、`public/`、服務 API 契約 `docs/service-api.md` 與 npm 自動收錄的套件說明檔。
 
 發佈目前的 `0.1.1`（先提交版本變更；每個 tag 僅建立一次）：
 
@@ -59,7 +59,7 @@ git push origin v0.1.2
 
 次版／主版可改用 `npm version minor`／`npm version major`，推送對應的新 tag。每個版本使用新的 tag；可在 GitHub Actions 的 `Release CLI` 查看結果。`private: true` 僅防止誤發佈至 npm registry，不影響 HTTPS tarball 安裝。
 
-完整整合測試只能連接**專用且可丟棄的 Linux SSH/Docker fixture**，不可指向使用者的正式主機或共用生產 Docker daemon。測試會以專用帳號連線、暫時變更 fixture 內測試帳號的 Docker 群組，並只建立／刪除唯一 `sshdeck-test-ticket06-*` 測試容器；Docker 權限測試亦會透過受測 SSH fixture 操作名為 `sshdeck-test-ssh` 的容器群組設定。不要使用真實私鑰或生產 Docker 環境。
+SSH 傳輸與 SSHDeck service 測試使用專用、可丟棄的 OpenSSH fixture；它們不會因設定 `SSHDECK_TEST_SSH_*` 而啟用遠端 Docker 測試。Windows 的 service E2E 以本機 WSL Ubuntu/systemd 啟動兩個 transient OpenSSH targets；確認 `2227`／`2228` 未被占用後，設定 `$env:SSHDECK_TEST_SERVICE_SSH = '1'` 再執行 `npm test`。測試產生隨機金鑰，並清理本次唯一 systemd units、fixture 目錄及 ports，不使用 Docker。Docker 權限測試另需專用 OpenSSH/Docker fixture，只有設定 `SSHDECK_TEST_DOCKER_*` 才會啟用；測試會在 fixture 中建立／刪除唯一 `sshdeck-test-ticket06-*` 容器或調整名為 `sshdeck-test-ssh` 的容器帳號群組。不可指向正式主機或共用 Docker daemon，也不要使用個人或生產私鑰。
 
 設定測試主機位址、埠、兩個測試登入金鑰及經可信管道核對的 SHA-256 host fingerprint 後執行 `npm test`。若要涵蓋加密金鑰登入情境，另設 `SSHDECK_TEST_SSH_KEY_A_ENCRYPTED`。測試私鑰須為隔離測試用金鑰，切勿使用個人或生產私鑰：
 
@@ -73,6 +73,8 @@ npm test
 ```
 
 Linux shell 可用相同變數名稱執行 `export SSHDECK_TEST_SSH_HOST=...` 等指令；macOS 的程式碼相容性路徑保留，但本輪不執行測試。完整測試 fixture 帳號、權限與各平台的執行證據詳見 `.scratch/sshdeck/issues/07-cross-platform-acceptance.md` 及前置票單。
+
+SSHDeck service protocol 與 headless CLI 的版本化 API、加密保存、認證、信任、鎖定及串流契約見 [`docs/service-api.md`](docs/service-api.md)。服務入口是 `sshdeck service start`；服務與 standalone 資料根目錄分離。CLI 需明確設定 `SSHDECK_MODE=service`、`SSHDECK_SERVICE_URL`、`SSHDECK_SERVICE_TOKEN`，錯誤時不會提示密語或回退到 standalone。服務啟動另需絕對路徑 `SSHDECK_SERVICE_HOME`、獨立 `SSHDECK_ENCRYPTION_KEY`，以及不同的 server-side `SSHDECK_UI_TOKEN`。
 
 ## 主機設定與 SSH 檢查
 

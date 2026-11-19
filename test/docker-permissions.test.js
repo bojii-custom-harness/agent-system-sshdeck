@@ -7,11 +7,11 @@ const { spawn, spawnSync } = require('node:child_process');
 const ssh = require('../lib/ssh');
 const { startUi } = require('../bin/sshdeck');
 
-const integrationHost = process.env.SSHDECK_TEST_SSH_HOST;
-const integrationPort = Number(process.env.SSHDECK_TEST_SSH_PORT || 22);
-const integrationKeyA = process.env.SSHDECK_TEST_SSH_KEY_A;
-const integrationKeyB = process.env.SSHDECK_TEST_SSH_KEY_B;
-const integrationHostFingerprint = process.env.SSHDECK_TEST_SSH_FINGERPRINT;
+const integrationHost = process.env.SSHDECK_TEST_DOCKER_HOST;
+const integrationPort = Number(process.env.SSHDECK_TEST_DOCKER_PORT || 22);
+const integrationKeyA = process.env.SSHDECK_TEST_DOCKER_KEY_A;
+const integrationKeyB = process.env.SSHDECK_TEST_DOCKER_KEY_B;
+const integrationHostFingerprint = process.env.SSHDECK_TEST_DOCKER_FINGERPRINT;
 const integrationEnabled = Boolean(integrationHost && integrationKeyA && integrationKeyB && integrationHostFingerprint);
 const cli = path.join(__dirname, '..', 'bin', 'sshdeck.js');
 
@@ -102,7 +102,7 @@ test('Docker diagnostics preserve distinct failure causes', () => {
 });
 
 test('CLI and UI report SSH and Docker separately for authorized, denied, and SSH-failed accounts', {
-  skip: !integrationEnabled && 'Set SSHDECK_TEST_SSH_* variables to run against the isolated OpenSSH/Docker test host.',
+  skip: !integrationEnabled && 'Set SSHDECK_TEST_DOCKER_* variables to run against the dedicated OpenSSH/Docker test host.',
 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sshdeck-docker-check-'));
   const dataFile = path.join(directory, 'hosts.json');
@@ -184,7 +184,7 @@ test('CLI and UI report SSH and Docker separately for authorized, denied, and SS
 });
 
 test('authorized account can create, start, inspect, and remove only its uniquely named test container', {
-  skip: !integrationEnabled && 'Set SSHDECK_TEST_SSH_* variables to run against the isolated OpenSSH/Docker test host.',
+  skip: !integrationEnabled && 'Set SSHDECK_TEST_DOCKER_* variables to run against the dedicated OpenSSH/Docker test host.',
 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sshdeck-docker-container-'));
   const alias = 'docker-e2e';
@@ -217,7 +217,7 @@ test('authorized account can create, start, inspect, and remove only its uniquel
 });
 
 test('manual group authorization becomes available after the SSH user logs in again', {
-  skip: !integrationEnabled && 'Set SSHDECK_TEST_SSH_* variables to run against the isolated OpenSSH/Docker test host.',
+  skip: !integrationEnabled && 'Set SSHDECK_TEST_DOCKER_* variables to run against the dedicated OpenSSH/Docker test host.',
 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sshdeck-docker-group-'));
   const alias = 'docker-group';

@@ -1553,6 +1553,41 @@ async function shellCommand(dataFile, args) {
 }
 
 async function main(args) {
+  if (process.env.SSHDECK_MODE === 'service') {
+    const { runCli } = require('../lib/service-client');
+    await runCli(args);
+    return;
+  }
+  if (process.env.SSHDECK_MODE && process.env.SSHDECK_MODE !== 'standalone') {
+    throw new Error('SSHDECK_MODE 僅支援 standalone 或 service');
+  }
+  if (args[0] === 'service') {
+    if (args[1] !== 'start') throw new Error('用法：sshdeck service start [--host <位址>] [--port <連接埠>]');
+    let host = '127.0.0.1';
+    let port = 8788;
+    for (let index = 2; index < args.length; index += 1) {
+      if (!['--host', '--port'].includes(args[index]) || !args[index + 1]) {
+        throw new Error('用法：sshdeck service start [--host <位址>] [--port <連接埠>]');
+      }
+      if (args[index] === '--host') host = args[index + 1];
+      else port = Number(args[index + 1]);
+      index += 1;
+    }
+    const { startService } = require('../lib/service-server');
+    const server = await startService({ host, port });
+    console.log(`sshdeck service：${server.url}`);
+    await new Promise((resolve) => {
+      const shutdown = async () => {
+        process.removeListener('SIGINT', shutdown);
+        process.removeListener('SIGTERM', shutdown);
+        await server.closeAsync();
+        resolve();
+      };
+      process.once('SIGINT', shutdown);
+      process.once('SIGTERM', shutdown);
+    });
+    return;
+  }
   if (args[0] === 'ui') {
     let port = 8787;
     for (let index = 1; index < args.length; index += 1) {
@@ -1581,11 +1616,26 @@ async function main(args) {
   await hostCommand(dataFileFor(), args);
 }
 
+module.exports = {
+  attachLocalTerminal,
+  connectInteractiveShell,
+  dataFileFor,
+  hostList,
+  openBrowser,
+  parseExecArgs,
+  parseShellArgs,
+  readSecret,
+  readHosts,
+  mutateHosts,
+  validateHost,
+  shellCommand,
+  startUi,
+  main,
+};
+
 if (require.main === module) {
   main(process.argv.slice(2)).catch((error) => {
     console.error(`sshdeck：${error.message}`);
     process.exitCode = 1;
   });
 }
-
-module.exports = { attachLocalTerminal, connectInteractiveShell, dataFileFor, hostList, openBrowser, parseExecArgs, parseShellArgs, readSecret, shellCommand, startUi };
