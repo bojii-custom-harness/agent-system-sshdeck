@@ -382,6 +382,7 @@ test('真實 Chromium 經 UI adapter/service WebSocket 操作隔離 OpenSSH PTY�
   let serviceCleanup = 'not-started';
   let fixtureCleanup = 'not-started';
   const observations = [];
+  const serviceUpstreamSockets = [];
   const logLines = [];
   const pageOutput = [];
   const aliasA = `ticket07-a-${runId.slice(0, 8)}`;
@@ -408,8 +409,9 @@ test('真實 Chromium 經 UI adapter/service WebSocket 操作隔離 OpenSSH PTY�
 
     evidence.stage = 'start-real-service-and-ui-adapter';
     service = await startService({ env, host: '127.0.0.1', port: servicePort });
-    service.on('upgrade', (request) => {
+    service.on('upgrade', (request, socket) => {
       if (!request.url?.endsWith('/terminal')) return;
+      serviceUpstreamSockets.push(socket);
       const authorization = request.headers.authorization || '';
       observations.push({
         usesUiToken: authorization === `Bearer ${env.SSHDECK_UI_TOKEN}`,
@@ -662,6 +664,24 @@ test('真實 Chromium 經 UI adapter/service WebSocket 操作隔離 OpenSSH PTY�
       document.querySelector('#terminal-status').textContent.includes(`已連線至 ${alias}`)
     ), aliasB);
     assert.equal(service.activeTerminalCount, 1, '遠端結束後應可明確重新開啟新的 PTY');
+
+    evidence.stage = 'recover-from-abnormal-upstream-websocket-close';
+    const upstreamSocket = serviceUpstreamSockets.at(-1);
+    assert.ok(upstreamSocket && !upstreamSocket.destroyed, '需找到目前 PTY 對應的真實 service socket');
+    upstreamSocket.destroy();
+    await pageB.waitForFunction(() => (
+      !document.querySelector('#terminal-status').textContent.includes('已連線至')
+    ));
+    const noAbnormallyClosedTerminalDeadline = Date.now() + 5000;
+    while (service.activeTerminalCount !== 0 && Date.now() < noAbnormallyClosedTerminalDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(service.activeTerminalCount, 0, 'upstream abnormal close 必須清理本機 SSH PTY');
+    await pageB.locator('#connect-host').click();
+    await pageB.waitForFunction((alias) => (
+      document.querySelector('#terminal-status').textContent.includes(`已連線至 ${alias}`)
+    ), aliasB);
+    assert.equal(service.activeTerminalCount, 1, 'upstream abnormal close 後應可建立新 PTY');
 
     evidence.stage = 'service-shutdown-closes-open-pty';
     await service.closeAsync();

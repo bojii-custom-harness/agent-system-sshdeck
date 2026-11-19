@@ -1764,6 +1764,9 @@ function createServer({
     activeServiceBridges.delete(bridge);
     bridge.resolveClosed();
   };
+  const isValidWebSocketCloseCode = (code) => Number.isInteger(code)
+    && ((code >= 1000 && code <= 1014 && ![1004, 1005, 1006].includes(code))
+      || (code >= 3000 && code <= 4999));
   const closeServiceBridge = (bridge, code = 1000, reason = 'terminal closed', force = false) => {
     if (bridge.ending) {
       if (force) {
@@ -1881,7 +1884,11 @@ function createServer({
     });
     upstreamSocket.on('close', (code, reason) => {
       bridge.upstreamClosed = true;
-      closeServiceBridge(bridge, code || 1000, reason.toString() || 'service terminal closed');
+      closeServiceBridge(
+        bridge,
+        isValidWebSocketCloseCode(code) ? code : 1011,
+        reason.toString() || 'service terminal closed',
+      );
       finalizeServiceBridge(bridge);
     });
   };
