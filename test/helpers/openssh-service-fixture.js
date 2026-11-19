@@ -94,7 +94,7 @@ function fingerprintFor(path) {
   return fingerprint;
 }
 
-async function createOpenSshServiceFixture({ authorizedPublicKey, evidenceFile } = {}) {
+async function createOpenSshServiceFixture({ authorizedPublicKey, evidenceFile, enablePty = false } = {}) {
   if (typeof authorizedPublicKey !== 'string' || !authorizedPublicKey.startsWith('ssh-ed25519 ')) {
     throw new Error('fixture 需要隔離測試用 Ed25519 公鑰');
   }
@@ -111,7 +111,10 @@ async function createOpenSshServiceFixture({ authorizedPublicKey, evidenceFile }
     `sshdeck-ticket01-${runId}-a.service`,
     `sshdeck-ticket01-${runId}-b.service`,
   ];
-  const authorizedTestKey = `no-agent-forwarding,no-port-forwarding,no-pty ${authorizedPublicKey}`;
+  const authorizedKeyOptions = enablePty
+    ? 'no-agent-forwarding,no-port-forwarding'
+    : 'no-agent-forwarding,no-port-forwarding,no-pty';
+  const authorizedTestKey = `${authorizedKeyOptions} ${authorizedPublicKey}`;
   const fixtureCommands = {
     'target-a': "printf 'target-a\\n'",
     'target-b': "printf 'target-b\\n'",
@@ -139,7 +142,7 @@ AllowTcpForwarding no
 AllowAgentForwarding no
 X11Forwarding no
 PermitTunnel no
-PermitTTY no
+PermitTTY ${enablePty ? 'yes' : 'no'}
 LogLevel ERROR
 `;
   const script = [

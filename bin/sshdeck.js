@@ -495,7 +495,7 @@ const page = `<!doctype html>
 </aside>
 <main id="main" tabindex="-1">
 <h1>主機設定管理</h1>
-<p id="service-mode-note" hidden>服務模式：登入金鑰由 SSHDeck service 加密保管；此介面不提供互動終端機。金鑰信任與遠端公鑰安裝仍須由使用者明確確認。</p>
+<p id="service-mode-note" hidden>服務模式：登入金鑰由 SSHDeck service 加密保管；互動終端機透過受認證的 service WebSocket 連線。首次或變更後的主機指紋與遠端公鑰安裝仍須由使用者明確確認。</p>
 <p id="error" role="alert"></p>
 <section id="hosts-panel" role="tabpanel" aria-labelledby="hosts-tab" tabindex="-1">
   <h2>主機操作</h2>
@@ -1186,8 +1186,8 @@ document.querySelector('#lock-keys').onclick = async () => {
 window.sshdeck.configure({ request, send, unlock, checkHost, checkSSH: (host, options = {}) => checkHost(host, { ...options, automatic: true }), startShell, refresh, showKeyInfo, askNewKeyPassphrase });
 if (sshdeckConfig.mode === 'service') {
   document.querySelector('#service-mode-note').hidden = false;
-  document.querySelector('#connect-host').hidden = true;
-  document.querySelector('#terminal-workspace').hidden = true;
+  document.querySelector('#connect-host').textContent = '開啟終端機';
+  document.querySelector('#terminal-workspace').hidden = false;
   document.querySelector('#lock-keys').textContent = '手動鎖定 service 金鑰';
   document.querySelector('#lock-keys').onclick = async () => {
     try { await send('/api/lock', 'POST', {}); error.textContent = '服務金鑰已手動鎖定；重新檢查時可明確解鎖'; }
@@ -1756,39 +1756,192 @@ function createServer({
       }
     });
   });
+  const activeServiceBridges = new Set();
+  let serverClosing = false;
+  const finalizeServiceBridge = (bridge) => {
+    if (!bridge.browserClosed || !bridge.upstreamClosed) return;
+    if (bridge.closeTimer) clearTimeout(bridge.closeTimer);
+    activeServiceBridges.delete(bridge);
+    bridge.resolveClosed();
+  };
+  const closeServiceBridge = (bridge, code = 1000, reason = 'terminal closed', force = false) => {
+    if (bridge.ending) {
+      if (force) {
+        bridge.browser.terminate();
+        bridge.upstream.terminate();
+      }
+      return;
+    }
+    bridge.ending = true;
+    if (force) {
+      bridge.browser.terminate();
+      bridge.upstream.terminate();
+    } else {
+      if (bridge.browser.readyState === WebSocket.OPEN) bridge.browser.close(code, reason);
+      else if (bridge.browser.readyState === WebSocket.CONNECTING) bridge.browser.terminate();
+      if (bridge.upstream.readyState === WebSocket.OPEN) bridge.upstream.close(code, reason);
+      else if (bridge.upstream.readyState === WebSocket.CONNECTING) bridge.upstream.terminate();
+    }
+    bridge.closeTimer = setTimeout(() => closeServiceBridge(bridge, code, reason, true), 1000);
+    bridge.closeTimer.unref?.();
+  };
+  const relayTerminalFailure = (webSocket, { code = 'SERVICE_TERMINAL_FAILED', error = 'SSHDeck service 終端機無法連線' } = {}) => {
+    if (webSocket.readyState === WebSocket.OPEN) {
+      webSocket.send(JSON.stringify({ type: 'error', code, error }));
+    }
+  };
+  const bridgeServiceTerminal = (browserSocket, alias) => {
+    const target = new URL(`/v1/hosts/${encodeURIComponent(alias)}/terminal`, serviceConfig.origin);
+    target.protocol = target.protocol === 'https:' ? 'wss:' : 'ws:';
+    const upstreamSocket = new WebSocket(target, {
+      headers: { authorization: `Bearer ${serviceConfig.token}` },
+      origin: serviceConfig.origin,
+      handshakeTimeout: 10_000,
+      maxPayload: 64 * 1024,
+      perMessageDeflate: false,
+    });
+    let resolveClosed;
+    const bridge = {
+      browser: browserSocket,
+      upstream: upstreamSocket,
+      browserClosed: false,
+      upstreamClosed: false,
+      ending: false,
+      closeTimer: undefined,
+      closed: new Promise((resolve) => { resolveClosed = resolve; }),
+      resolveClosed: () => resolveClosed(),
+    };
+    activeServiceBridges.add(bridge);
+
+    let pendingBytes = 0;
+    const pendingMessages = [];
+    browserSocket.on('message', (data, isBinary) => {
+      if (bridge.ending) return;
+      if (upstreamSocket.readyState === WebSocket.OPEN) {
+        upstreamSocket.send(data, { binary: isBinary });
+        return;
+      }
+      const bytes = Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data);
+      if (pendingBytes + bytes > 64 * 1024) {
+        relayTerminalFailure(browserSocket, {
+          code: 'TERMINAL_BACKPRESSURE',
+          error: '終端機連線尚未就緒；已拒絕過量輸入',
+        });
+        closeServiceBridge(bridge, 1008, 'terminal input overflow');
+        return;
+      }
+      pendingMessages.push({ data, isBinary });
+      pendingBytes += bytes;
+    });
+    browserSocket.on('close', () => {
+      bridge.browserClosed = true;
+      closeServiceBridge(bridge);
+      finalizeServiceBridge(bridge);
+    });
+    browserSocket.on('error', () => closeServiceBridge(bridge, 1011, 'browser socket error', true));
+
+    upstreamSocket.once('open', () => {
+      if (bridge.ending) {
+        upstreamSocket.terminate();
+        return;
+      }
+      for (const message of pendingMessages) {
+        upstreamSocket.send(message.data, { binary: message.isBinary });
+      }
+      pendingMessages.length = 0;
+      pendingBytes = 0;
+    });
+    upstreamSocket.on('message', (data, isBinary) => {
+      if (bridge.ending || browserSocket.readyState !== WebSocket.OPEN) return;
+      browserSocket.send(data, { binary: isBinary });
+    });
+    upstreamSocket.once('unexpected-response', (_request, response) => {
+      const chunks = [];
+      let bytes = 0;
+      response.on('data', (chunk) => {
+        if (bytes >= 8192) return;
+        const remaining = 8192 - bytes;
+        const part = Buffer.from(chunk).subarray(0, remaining);
+        chunks.push(part);
+        bytes += part.length;
+      });
+      response.once('end', () => {
+        let payload = {};
+        try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { /* 使用固定錯誤回應 */ }
+        relayTerminalFailure(browserSocket, {
+          code: typeof payload.code === 'string' ? payload.code : 'SERVICE_TERMINAL_REJECTED',
+          error: typeof payload.error === 'string' ? payload.error : 'SSHDeck service 拒絕終端機連線',
+        });
+        closeServiceBridge(bridge, 1011, 'service rejected terminal');
+      });
+    });
+    upstreamSocket.on('error', () => {
+      if (!bridge.ending) relayTerminalFailure(browserSocket);
+      closeServiceBridge(bridge, 1011, 'service socket error', true);
+    });
+    upstreamSocket.on('close', (code, reason) => {
+      bridge.upstreamClosed = true;
+      closeServiceBridge(bridge, code || 1000, reason.toString() || 'service terminal closed');
+      finalizeServiceBridge(bridge);
+    });
+  };
+  const rejectAdapterUpgrade = (socket, status, message) => {
+    const reason = http.STATUS_CODES[status] || 'Bad Request';
+    const body = Buffer.from(JSON.stringify({ error: message }));
+    socket.end(Buffer.concat([
+      Buffer.from([
+        `HTTP/1.1 ${status} ${reason}`,
+        'Connection: close',
+        'Cache-Control: no-store',
+        'Content-Type: application/json; charset=utf-8',
+        `Content-Length: ${body.length}`,
+        '',
+        '',
+      ].join('\r\n')),
+      body,
+    ]));
+  };
+
   server.on('upgrade', (req, socket, head) => {
     let requestUrl;
     try { requestUrl = new URL(req.url, `http://127.0.0.1:${server.address()?.port || port}`); }
     catch {
-      socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
-      socket.destroy();
+      rejectAdapterUpgrade(socket, 400, 'invalid request URL');
+      return;
+    }
+    if (serverClosing) {
+      rejectAdapterUpgrade(socket, 503, 'adapter is shutting down');
       return;
     }
     if (basePath && (requestUrl.pathname === basePath || !requestUrl.pathname.startsWith(`${basePath}/`))) {
-      socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
-      socket.destroy();
+      rejectAdapterUpgrade(socket, 404, 'route not found');
       return;
     }
     const socketPath = basePath ? requestUrl.pathname.slice(basePath.length) : requestUrl.pathname;
-    if (mode !== 'standalone' || socketPath !== '/api/shell'
+    if (req.method !== 'GET' || socketPath !== '/api/shell'
       || !trustedUiRequest(req, server.address()?.port || port, { allowedHosts, allowedOrigins })
       || !req.headers.origin) {
-      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
-      socket.destroy();
+      rejectAdapterUpgrade(socket, 403, 'untrusted terminal request');
       return;
     }
     const alias = requestUrl.searchParams.get('alias');
-    let knownAlias = false;
-    try { knownAlias = Boolean(alias && readHosts(dataFile).some((host) => host.alias === alias)); }
-    catch {
-      socket.write('HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\n\r\n');
-      socket.destroy();
+    const params = [...requestUrl.searchParams.keys()];
+    if (!alias || requestUrl.searchParams.getAll('alias').length !== 1
+      || params.some((key) => key !== 'alias')) {
+      rejectAdapterUpgrade(socket, 400, 'invalid terminal target');
       return;
     }
-    if (!knownAlias) {
-      socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
-      socket.destroy();
-      return;
+    if (mode === 'standalone') {
+      let knownAlias = false;
+      try { knownAlias = readHosts(dataFile).some((host) => host.alias === alias); }
+      catch {
+        rejectAdapterUpgrade(socket, 500, 'host configuration unavailable');
+        return;
+      }
+      if (!knownAlias) {
+        rejectAdapterUpgrade(socket, 404, 'unknown host');
+        return;
+      }
     }
     webSocketServer.handleUpgrade(req, socket, head, (webSocket) => {
       webSocketServer.emit('connection', webSocket, req, alias);
@@ -1796,6 +1949,10 @@ function createServer({
   });
 
   webSocketServer.on('connection', (webSocket, _request, alias) => {
+    if (mode === 'service') {
+      bridgeServiceTerminal(webSocket, alias);
+      return;
+    }
     let session;
     let pendingFingerprint;
     let closing = false;
@@ -1913,15 +2070,25 @@ function createServer({
     startShell();
   });
 
+  const closeUiSockets = () => {
+    serverClosing = true;
+    for (const bridge of activeServiceBridges) closeServiceBridge(bridge, 1001, 'adapter shutdown', true);
+    for (const webSocket of webSocketServer.clients) webSocket.terminate();
+  };
   server.on('close', () => {
     unlockedKeys.clear();
-    for (const webSocket of webSocketServer.clients) webSocket.terminate();
+    closeUiSockets();
     webSocketServer.close();
   });
   const closeHttpServer = server.close.bind(server);
+  let closeStarted = false;
   server.close = (callback) => {
-    for (const webSocket of webSocketServer.clients) webSocket.terminate();
-    return closeHttpServer(callback);
+    if (closeStarted) return server;
+    closeStarted = true;
+    closeUiSockets();
+    const pending = [...activeServiceBridges].map((bridge) => bridge.closed);
+    Promise.all(pending).then(() => closeHttpServer(callback));
+    return server;
   };
   return server;
 }

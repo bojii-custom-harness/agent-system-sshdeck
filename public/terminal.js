@@ -5,6 +5,7 @@
   const sessions = document.querySelector('#shell-sessions');
   const status = document.querySelector('#terminal-status');
   const connect = document.querySelector('#connect-host');
+  const idleConnectLabel = window.sshdeckConfig?.mode === 'service' ? '開啟終端機' : '連線';
   const originalStart = ui.services.startShell;
   let active = null;
   let generation = 0;
@@ -15,7 +16,7 @@
     active = null;
     current?.handle.close();
     status.textContent = message;
-    connect.textContent = '連線';
+    connect.textContent = idleConnectLabel;
     connect.disabled = !ui.selectedHost;
   }
 
@@ -33,7 +34,7 @@
         } else if (state === 'failed' || state === 'closed') {
           active = null;
           status.textContent = detail || (state === 'failed' ? '終端連線失敗。' : '終端連線已中斷。');
-          connect.textContent = '連線';
+          connect.textContent = idleConnectLabel;
           connect.disabled = !ui.selectedHost;
         }
       },
