@@ -947,11 +947,14 @@ async function refresh() {
               : docker.state === 'not-run' ? '未執行'
                 : '無法使用';
     const checked = host.check?.checkedAt ? '，最近檢查 ' + host.check.checkedAt : '';
-    item.title = docker?.diagnostic || '';
-    item.textContent = host.alias + ' — ' + host.username + '@' + host.hostname + ':' + host.port + '（SSH：' + state + '；Docker：' + dockerState + checked + '） ';
+    const status = sshdeckConfig.mode === 'service'
+      ? '（SSH：' + state + checked + '） '
+      : '（SSH：' + state + '；Docker：' + dockerState + checked + '） ';
+    item.title = sshdeckConfig.mode === 'service' ? '' : (docker?.diagnostic || '');
+    item.textContent = host.alias + ' — ' + host.username + '@' + host.hostname + ':' + host.port + status;
 
     const check = document.createElement('button');
-    check.textContent = '檢查 SSH 與 Docker';
+    check.textContent = sshdeckConfig.mode === 'service' ? '檢查 SSH' : '檢查 SSH 與 Docker';
     check.onclick = async () => {
       error.textContent = '';
       try { await window.sshdeck.services.checkHost(host); await refresh(); }

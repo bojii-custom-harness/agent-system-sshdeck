@@ -37,6 +37,7 @@ npm install -g https://github.com/bojii-custom-harness/agent-system-sshdeck/rele
 - 從下載／clone 的專案根目錄執行 `npm ci --ignore-scripts` 安裝相依套件；產品不依賴安裝生命週期腳本，也不需發佈至公開 npm registry。
 - 可直接執行 `node bin/sshdeck.js host list` 或 `node bin/sshdeck.js ui`。
 - 也可在專案根目錄執行 `npm install -g .` 安裝 CLI，之後使用 `sshdeck host list` 或 `sshdeck ui`。
+- 新環境執行瀏覽器測試前，先安裝 Playwright Chromium：`npx playwright install chromium`。Linux 若缺少系統相依，使用 `npx playwright install --with-deps chromium` 安裝瀏覽器及必要套件；此命令需要安裝系統套件的權限。
 - 執行測試：`npm test`。若未設定下方整合測試環境變數，SSH／Docker E2E 測試會標示 skipped。
 
 ### 使用 tag 發版

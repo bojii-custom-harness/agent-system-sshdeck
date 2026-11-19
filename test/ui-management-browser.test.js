@@ -70,11 +70,16 @@ async function importPrivateKey(page, privateKey, passphrase) {
   await page.locator('#key-import-form button[type="submit"]').click();
 }
 
-async function checkSelectedHostWithTrust(page, expectedFingerprints) {
+async function checkSelectedHostWithTrust(page, alias, expectedFingerprints, serviceCheckRequests) {
+  const firstServiceCheck = serviceCheckRequests.length;
+  const actions = page.locator('#selected-host-actions');
+  const checkButton = actions.getByRole('button', { name: '檢查 SSH', exact: true });
+  assert.equal(await checkButton.count(), 1, 'service UI 的手動檢查按鈕只應宣稱檢查 SSH');
+  assert.equal(await actions.getByRole('button', { name: '檢查 SSH 與 Docker', exact: true }).count(), 0, 'service UI 不可宣稱檢查未提供的 Docker 狀態');
   const isManualCheck = (request) => {
     if (request.method() !== 'POST') return false;
     try {
-      return /^\/sshdeck\/api\/hosts\/[^/]+\/check$/.test(new URL(request.url()).pathname);
+      return new URL(request.url()).pathname === `/sshdeck/api/hosts/${encodeURIComponent(alias)}/check`;
     } catch {
       return false;
     }
@@ -94,7 +99,7 @@ async function checkSelectedHostWithTrust(page, expectedFingerprints) {
     await dialog.accept();
     return message;
   });
-  await page.locator('#selected-host-actions').getByRole('button', { name: '檢查 SSH 與 Docker' }).click();
+  await checkButton.click();
   await challengeRequest;
   const message = await dialogPromise;
   await confirmedResponse;
@@ -102,6 +107,15 @@ async function checkSelectedHostWithTrust(page, expectedFingerprints) {
     const item = document.querySelector('#hosts li.selected .host-status');
     return item?.textContent.includes('SSH 連線檢查成功');
   });
+  const serviceChecks = serviceCheckRequests.slice(firstServiceCheck);
+  const serviceCheckPath = `/v1/hosts/${encodeURIComponent(alias)}/check`;
+  assert.ok(serviceChecks.length >= 2, 'service UI 檢查須向 SSH service API 發送指紋挑戰與確認請求');
+  assert.ok(serviceChecks.every((route) => route === serviceCheckPath), `service UI 只能呼叫該主機的 SSH check API；實際路徑：${serviceChecks.join(', ')}`);
+  const hostStatus = await page.locator('#hosts li.selected .host-status').textContent();
+  const managementStatus = await page.locator('#selected-host-actions').innerText();
+  assert.match(hostStatus, /SSH 連線檢查成功/);
+  assert.doesNotMatch(hostStatus, /Docker/);
+  assert.doesNotMatch(managementStatus, /Docker/);
   const shownFingerprints = [...message.matchAll(/SHA256:[A-Za-z0-9+/=]+/g)].map(([value]) => value);
   for (const fingerprint of expectedFingerprints) {
     assert.ok(shownFingerprints.includes(fingerprint), `確認對話框須顯示待核對的實際主機指紋；實際顯示：${shownFingerprints.join(', ') || '無'}`);
@@ -144,9 +158,11 @@ test('真實 Chromium：service UI 在 /sshdeck/ 匯入金鑰、核對指紋並�
 
   let fixture;
   let service;
+  const serviceCheckRequests = [];
   let ui;
   let browser;
   let failure;
+  const requestPaths = [];
   try {
     assert.equal(await portAvailable(uiPort), true, `UI port ${uiPort} 已被占用；不會停止既有程序`);
     assert.equal(await portAvailable(apiPort), true, `API port ${apiPort} 已被占用；不會停止既有程序`);
@@ -161,6 +177,11 @@ test('真實 Chromium：service UI 在 /sshdeck/ 匯入金鑰、核對指紋並�
 
     evidence.stage = 'start-service-and-ui';
     service = await startService({ env, host: '127.0.0.1', port: apiPort });
+    service.on('request', (request) => {
+      if (request.method === 'POST' && /^\/v1\/hosts\/[^/]+\/check$/.test(request.url || '')) {
+        serviceCheckRequests.push(request.url);
+      }
+    });
     ui = await startUi({
       mode: 'service',
       env: {
@@ -186,7 +207,6 @@ test('真實 Chromium：service UI 在 /sshdeck/ 匯入金鑰、核對指紋並�
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
     const pageErrors = [];
-    const requestPaths = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
     page.on('request', (request) => {
       try { requestPaths.push(new URL(request.url()).pathname); } catch { /* 忽略非 HTTP 請求 */ }
@@ -241,7 +261,7 @@ test('真實 Chromium：service UI 在 /sshdeck/ 匯入金鑰、核對指紋並�
     }
 
     evidence.stage = 'confirm-first-host-fingerprint';
-    await checkSelectedHostWithTrust(page, [fixture.fingerprints.a]);
+    await checkSelectedHostWithTrust(page, aliasA, [fixture.fingerprints.a], serviceCheckRequests);
     evidence.stage = 'verify-mounted-service-exec-stream';
     const mountedStream = await page.evaluate(async ({ alias, command }) => {
       const response = await fetch('api/exec', {
@@ -268,11 +288,11 @@ test('真實 Chromium：service UI 在 /sshdeck/ 匯入金鑰、核對指紋並�
     await addHostThroughGuide(page, { alias: aliasB, port: fixture.ports[1], keyId: sharedKey.id });
     await page.locator('#hosts-tab').click();
     await selectHost(page, aliasB);
-    await checkSelectedHostWithTrust(page, [fixture.fingerprints.b]);
+    await checkSelectedHostWithTrust(page, aliasB, [fixture.fingerprints.b], serviceCheckRequests);
 
     evidence.stage = 'confirm-changed-host-fingerprint';
     const changedFingerprint = await fixture.rotateB();
-    await checkSelectedHostWithTrust(page, [fixture.fingerprints.b, changedFingerprint]);
+    await checkSelectedHostWithTrust(page, aliasB, [fixture.fingerprints.b, changedFingerprint], serviceCheckRequests);
 
     evidence.stage = 'enforce-shared-key-delete-constraint';
     await page.evaluate(() => { window.confirm = () => true; });
@@ -314,7 +334,6 @@ test('真實 Chromium：service UI 在 /sshdeck/ 匯入金鑰、核對指紋並�
 
     evidence.status = 'passed';
     evidence.stage = 'all-browser-assertions-passed';
-    evidence.requestPaths = requestPaths.filter((pathname) => pathname.startsWith('/sshdeck/'));
   } catch (error) {
     failure = error;
     evidence.status = 'failed';
@@ -334,6 +353,8 @@ test('真實 Chromium：service UI 在 /sshdeck/ 匯入金鑰、核對指紋並�
       catch { evidence.fixtureCleanup = 'failed'; }
     }
     fs.rmSync(directory, { recursive: true, force: true });
+    evidence.requestPaths = requestPaths.filter((pathname) => pathname.startsWith('/sshdeck/'));
+    evidence.serviceCheckRequests = serviceCheckRequests;
     if (process.env.SSHDECK_TEST_UI_EVIDENCE) {
       fs.writeFileSync(process.env.SSHDECK_TEST_UI_EVIDENCE, `${JSON.stringify(evidence, null, 2)}\n`, {
         encoding: 'utf8',
