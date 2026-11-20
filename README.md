@@ -44,11 +44,11 @@ npm install -g https://github.com/bojii-custom-harness/agent-system-sshdeck/rele
 
 GitHub Actions 在推送 `v*` tag 後核對 tag 與 `package.json` 版本、執行測試、打包並驗證 CLI 全域安裝，成功後自動建立 Release 與公開下載附件。僅接受 `v主版.次版.修訂版` 正式版；測試所需的遠端 SSH fixture 未設定時，相關 E2E 仍會 skipped。套件包含執行所需的 `bin/`、`lib/`、`public/`、服務 API 契約 `docs/service-api.md` 與 npm 自動收錄的套件說明檔。
 
-目前產品分支的套件版本是 `0.1.2` 候選；正式發布前須完成該版本附件驗證及獨立票級 review。符合授權門檻後，才可為每個正式版本建立一次 tag：
+目前產品分支的套件版本是 `0.1.3` 本機候選；尚未建立新 tag、push 或公開 Release。正式發布前須完成該版本附件驗證、獨立票級 review，並另行取得發布授權。符合授權門檻後，才可為每個正式版本建立一次 tag：
 
 ```sh
-git tag -a v0.1.2 -m "發佈 v0.1.2"
-git push origin v0.1.2
+git tag -a v0.1.3 -m "發佈 v0.1.3"
+git push origin v0.1.3
 ```
 
 後續發版先在乾淨的正式分支更新版本；`npm version patch` 會同步更新 `package.json`、`package-lock.json` 並建立 commit 與 tag：
@@ -80,7 +80,7 @@ SSHDeck service protocol 與 headless CLI 的版本化 API、加密保存、認�
 
 ### 服務模式管理介面
 
-服務模式的瀏覽器管理介面由 SSHDeck CLI 提供 UI adapter；它在伺服器端以 `SSHDECK_UI_TOKEN` 呼叫 service API，token 不會送入瀏覽器。此模式的登入金鑰由 service 加密保存，支援建立、匯入、關聯、檢視公鑰／手動安裝指引、信任確認與刪除；不提供互動終端機。服務端需有 `SSHDECK_SERVICE_URL` 和與 CLI token 不同的 `SSHDECK_UI_TOKEN`（至少 32 字元）。UI 預設掛載在 `/sshdeck/`，可用 `SSHDECK_BASE_PATH` 設定其他安全子路徑：
+服務模式的瀏覽器管理介面由 SSHDeck CLI 提供 UI adapter；它在伺服器端以 `SSHDECK_UI_TOKEN` 呼叫 service API，token 不會送入瀏覽器。此模式的登入金鑰由 service 加密保存，支援建立、匯入、關聯、檢視公鑰／手動安裝指引、信任確認與刪除，也可透過受認證的 service WebSocket 開啟互動終端機。服務端需有 `SSHDECK_SERVICE_URL` 和與 CLI token 不同的 `SSHDECK_UI_TOKEN`（至少 32 字元）；終端 WebSocket 僅接受 UI token，不接受 CLI token。UI 預設掛載在 `/sshdeck/`，可用 `SSHDECK_BASE_PATH` 設定其他安全子路徑：
 
 ```sh
 SSHDECK_MODE=service \
@@ -114,7 +114,7 @@ sshdeck host delete dev
 
 執行 `sshdeck shell <別名>` 可開啟遠端互動 PTY；CLI 會將本機鍵盤輸入轉送至遠端，並在本機終端機調整大小時同步更新遠端尺寸。Ctrl+C 會傳送中斷輸入給遠端程式，Ctrl+D 或在遠端輸入 `exit` 可結束 shell；sshdeck 會在終端機結束／錯誤時還原本機 raw mode。瀏覽器主機列表的「開啟互動終端機」使用本機提供的 xterm.js，可同時開啟不同主機的獨立 session、調整瀏覽器視窗尺寸，並個別關閉終端機或瀏覽器頁籤。
 
-互動終端機沿用既有密語解鎖與 host key 核對。手動鎖定會清除新連線可用的密語快取，但不會中斷已建立的終端機 session。結束 SSH session 不保證遠端衍生程序停止；若要讓容器在終端機關閉後持續執行，請使用 Docker 背景模式（例如 `docker run -d ...`）。終端機 WebSocket 同樣僅接受本機 Host／Origin，且服務停止時會關閉相應本機 SSH session。
+互動終端機沿用既有密語解鎖與 host key 核對。standalone 模式的手動鎖定會清除新連線可用的密語快取，但不會中斷已建立的終端機 session；service mode 的手動鎖定則會關閉所有既有 PTY，並拒絕新終端連線，直到受信任的 UI 明確解鎖。結束 SSH session 不保證遠端衍生程序停止；若要讓容器在終端機關閉後持續執行，請使用 Docker 背景模式（例如 `docker run -d ...`）。standalone 終端 WebSocket 僅接受本機 Host／Origin；service mode 經 server-side UI adapter 連至固定 service origin，並檢查 Host／Origin 與 UI token。
 
 ## sshdeck 管理金鑰
 
@@ -160,7 +160,7 @@ cp -a "${XDG_DATA_HOME:-$HOME/.local/share}/sshdeck" "$HOME/sshdeck-backup"
 
 ## 安全與診斷
 
-Web 服務與終端機 WebSocket 僅綁定 loopback，檢查 Host／Origin；不要用反向代理、tunnel 或網路埠轉發將個人本機服務公開。SSH 連線使用端點範圍 host key trust；無可信管道可比對指紋時，應拒絕首次連線並先向主機管理者確認。密語不持久保存，服務重啟後須重新解鎖。
+standalone Web 服務與終端機 WebSocket 僅綁定 loopback，並檢查 Host／Origin。service mode 的非 loopback 部署必須依 service API 文件設定隔離網路、TLS ingress 及精確 UI adapter allowlist；不要將未受保護的介面直接公開。SSH 連線使用端點範圍 host key trust；無可信管道可比對指紋時，應拒絕首次連線並先向主機管理者確認。密語不持久保存，service 重啟後須重新解鎖。
 
 `host check` 分開顯示 SSH 與 Docker。SSH 失敗時 Docker 標示未執行；Docker 權限不足時，先依 `sshdeck guide <別名>` 的管理員指南授權，再完整登出／重新登入遠端帳號並重新檢查。Docker 群組是主機高權限，不是容器層級隔離；不要把不受信任的帳號加入。診斷保留 Docker CLI／daemon 的錯誤資訊，sshdeck 不會自動 sudo 或修復群組。
 

@@ -48,6 +48,7 @@ Authorization: Bearer <server-side-token>
 | `DELETE /v1/keys/{id}` | UI token | 只可刪除未關聯金鑰；仍有任何主機關聯時以 `409 KEY_IN_USE` 拒絕。 |
 | `POST /v1/hosts/{alias}/check` | CLI 或 UI token | 以服務憑證檢查 SSH；不設定 `expectedFingerprint` 時未知／變更指紋回 `409`。 |
 | `POST /v1/hosts/{alias}/exec` | CLI 或 UI token | JSON `{ "command": "..." }`，以 NDJSON 回傳單次遠端命令串流。 |
+| `GET /v1/hosts/{alias}/terminal` | 僅 UI token | WebSocket upgrade，建立該受管 alias 的互動 SSH PTY；拒絕 CLI token、未知主機及手動鎖定狀態。 |
 | `POST /v1/lock`、`POST /v1/unlock` | UI token | 手動鎖定／明確解鎖所有服務金鑰。解鎖只在服務端完成。 |
 
 `expectedFingerprint` 僅能在先取得 challenge 並經可信管道人工核對後，傳入 check／exec。服務會在同一 SSH 握手中確認目前 fingerprint 與核對值完全相同才記錄信任；不相符仍拒絕。CLI 的明確核對入口為：
@@ -72,9 +73,33 @@ SSHDECK_MODE=service sshdeck host trust <alias> --fingerprint SHA256:<人工核�
 
 CLI 將 stdout／stderr event 各自寫入對應檔案描述元，遠端結束碼作為 CLI 結束碼。使用者取消或 client 斷線會關閉該 HTTP 要求及對應 SSH channel；不會自動重連或重送。沒有完整 exit event 的斷線回報 `SERVICE_DISCONNECTED`，不會被當成遠端命令失敗後重新執行。取消只保證關閉本機 SSH 工作階段，不保證遠端已啟動的子程序停止。
 
+## 互動 PTY WebSocket（protocol v1）
+
+終端 endpoint 為 `GET /v1/hosts/{alias}/terminal`，使用標準 WebSocket upgrade；`alias` 必須是 service 已配置且已關聯服務管理金鑰的主機。要求必須帶有 `Authorization: Bearer <SSHDECK_UI_TOKEN>`，只接受 UI token，不接受 `SSHDECK_SERVICE_TOKEN`。缺少／錯誤 token 回 `401`；CLI token、非法 Host／Origin 回 `403`；未知 alias 回 `404`；手動鎖定回 `423`。endpoint 不接受 query string、不支援任意 upstream，並要求 Host／Origin 指向相同的服務 authority。
+
+UI adapter 的瀏覽器端路徑為 `/api/shell?alias=<alias>`（受 `SSHDECK_BASE_PATH` 影響時包含 base path，例如 `/sshdeck/api/shell`）。adapter 只使用 server-side `SSHDECK_UI_TOKEN` 連到設定中的固定 `SSHDECK_SERVICE_URL` 與上述 service endpoint；`SSHDECK_SERVICE_TOKEN`、`SSHDECK_UI_TOKEN` 及加密金鑰都不會進入瀏覽器 bundle、URL／query、console、一般回應或 log。瀏覽器傳來的 Basic `Authorization` 不會鏡像至 adapter 或 service WebSocket。adapter 保留自己的 Host／Origin ingress gate，且不接受瀏覽器指定 service URL。
+
+成功 upgrade 後，client 與 service 使用以下 frame：
+
+| 方向 | Frame | 用途 |
+| --- | --- | --- |
+| client → service | Binary | 原樣寫入此 session 的 SSH PTY stdin。 |
+| service → client | Binary | 原樣轉送此 session 的 SSH PTY stdout。 |
+| client → service | `{ "type": "resize", "cols": 80, "rows": 24 }` | 調整遠端 PTY 尺寸；列、欄必須是 `1`–`1000` 的整數。 |
+| service → client | `{ "type": "trust-required", "code": "HOST_TRUST_REQUIRED", "fingerprint": "SHA256:..." }` | 首次連線須先由使用者透過可信管道核對並明確確認指紋；尚未開啟 PTY。 |
+| service → client | `{ "type": "host-key-changed", "code": "HOST_KEY_CHANGED", "fingerprint": "SHA256:...", "previousFingerprint": "SHA256:..." }` | 主機指紋變更；舊信任不會自動沿用，確認前不開 PTY。 |
+| client → service | `{ "type": "trust", "fingerprint": "SHA256:..." }` | 提交使用者已確認的精確指紋。service 會重新連線，只有目前 fingerprint 完全相同時才記錄信任並開 PTY。 |
+| client → service | `{ "type": "trust-reject" }` | 拒絕 trust challenge，關閉此 session。 |
+| service → client | `{ "type": "started", "alias": "...", "username": "...", "cols": 80, "rows": 24 }` | SSH PTY 已成功建立。 |
+| client → service | `{ "type": "close" }` | 關閉此 session 的本機 SSH PTY。WebSocket close／disconnect 具相同清理效果。 |
+| service → client | `{ "type": "error", "code": "...", "error": "..." }` | SSH／憑證／協定錯誤；service 隨後關閉該 session。 |
+| service → client | `{ "type": "closed", "code": 0 }` | 遠端 PTY 正常結束；可附 `error`、`signal`。 |
+
+control frame 使用 JSON text frame；未知或格式錯誤的控制訊息會拒絕並關閉 session。PTY 輸入、輸出與 resize 僅屬於各自 alias 的獨立 SSH channel；取消、瀏覽器／adapter disconnect、手動 lock、主機設定或 key 關聯變更及 service shutdown 會關閉相應本機 PTY，不自動重連或重送。手動 lock 或主機／key 變更會先傳送 `error` 再關閉該 session；adapter disconnect 與 service shutdown 會關閉 WebSocket。`POST /v1/lock` 會關閉所有既有 service PTY 並拒絕新連線；只有 UI token 明確呼叫 `/v1/unlock` 且服務端重新驗證金鑰後才能恢復。關閉本機 SSH session 不保證遠端已啟動的子程序停止。
+
 ## 手動鎖定與重啟
 
-一般服務重啟會以 `SSHDECK_ENCRYPTION_KEY` 驗證並解密服務金鑰，服務可立即使用。`POST /v1/lock` 先原子寫入 `hosts.json.service-state.json` 的手動鎖定狀態，再清除記憶體金鑰並取消進行中的 SSH 執行；服務重啟後仍保持鎖定。只有受信任 UI server-side 呼叫 `POST /v1/unlock`、完成資料重新驗證及原子清除鎖定狀態後才恢復。服務 token 不具解鎖權限。刪除金鑰只刪除本機密文及公鑰，不會撤銷遠端 `authorized_keys` 授權。
+一般服務重啟會以 `SSHDECK_ENCRYPTION_KEY` 驗證並解密服務金鑰，服務可立即使用。`POST /v1/lock` 先原子寫入 `hosts.json.service-state.json` 的手動鎖定狀態，再清除記憶體金鑰、取消進行中的 SSH 執行並關閉所有既有 PTY；服務重啟後仍保持鎖定。只有受信任 UI server-side 呼叫 `POST /v1/unlock`、完成資料重新驗證及原子清除鎖定狀態後才恢復。服務 token 不具解鎖權限。刪除金鑰只刪除本機密文及公鑰，不會撤銷遠端 `authorized_keys` 授權。
 
 ## CLI 模式
 
