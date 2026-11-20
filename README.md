@@ -55,8 +55,9 @@ git push origin v0.1.3
 
 ```sh
 npm version patch -m "發佈 v%s"
+version=$(node -p "require('./package.json').version")
 git push origin <正式分支>
-git push origin v0.1.3
+git push origin "v$version"
 ```
 
 次版／主版可改用 `npm version minor`／`npm version major`，推送對應的新 tag。每個版本使用新的 tag；可在 GitHub Actions 的 `Release CLI` 查看結果。`private: true` 僅防止誤發佈至 npm registry，不影響 HTTPS tarball 安裝。
