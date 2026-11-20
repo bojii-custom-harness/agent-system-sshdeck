@@ -1,0 +1,21 @@
+{
+    "runId":  "bfa5c8936af548228698ffd91f8b6741-shim-sshdeck-01",
+    "invocation":  "sshdeck.cmd host list",
+    "homeId":  "bfa5c8936af548228698ffd91f8b6741/sshdeck-home",
+    "homeInitiallyEmpty":  true,
+    "parentEnvironmentSet":  true,
+    "exitCode":  0,
+    "timedOut":  false,
+    "timeoutMs":  30000,
+    "commandDeadlineMs":  25000,
+    "elapsedMs":  173,
+    "stdoutBytes":  22,
+    "stdoutSha256":  "798E3895C034EC4D0CD33BC7B98CFACB50292B9AE41ABBF05F68F64AEF6BD821",
+    "stderrBytes":  0,
+    "stderrSha256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "outputClassification":  "matches previously validated isolated empty-host-list output",
+    "sensitivePatternFound":  false,
+    "safeCopyReadback":  true,
+    "safeStdoutSha256":  "798E3895C034EC4D0CD33BC7B98CFACB50292B9AE41ABBF05F68F64AEF6BD821",
+    "safeStderrSha256":  "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+}

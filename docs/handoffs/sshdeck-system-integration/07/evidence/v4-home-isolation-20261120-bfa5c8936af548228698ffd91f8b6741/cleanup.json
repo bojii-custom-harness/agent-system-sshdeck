@@ -1,0 +1,41 @@
+{
+    "runId":  "bfa5c8936af548228698ffd91f8b6741",
+    "cleanupAttempts":  [
+                            {
+                                "method":  "PowerShell Remove-Item -Recurse",
+                                "result":  "failed",
+                                "error":  "DirectoryNotFoundException",
+                                "partialRemoval":  [
+                                                       "install-prefix",
+                                                       "SSHDECK_HOME run home",
+                                                       "raw output and runner files",
+                                                       "staging"
+                                                   ]
+                            },
+                            {
+                                "method":  ".NET Directory.Delete on remaining npm-cache/system-temp",
+                                "result":  "failed",
+                                "error":  "MethodInvocationException",
+                                "diagnosis":  "npm-cache included 25 paths longer than 260 characters; recursive legacy deletion stopped partway; no run-owned process remained"
+                            },
+                            {
+                                "method":  "Node.js fs.rmSync on exact remaining run-owned paths",
+                                "result":  "passed",
+                                "timeoutMs":  30000,
+                                "exitCode":  0,
+                                "removed":  [
+                                                "npm-cache",
+                                                "system-temp",
+                                                "install-run.config.json",
+                                                "shim-agent-system-sshdeck.config.json",
+                                                "shim-sshdeck.config.json"
+                                            ],
+                                "runTempRootRemoved":  true
+                            }
+                        ],
+    "finalProcessCheck":  "0 matching cmd.exe/node.exe processes before final cleanup",
+    "finalTempRootPresent":  false,
+    "sharedOrPreexistingResourcesTouched":  false,
+    "candidateArchiveUntouched":  true,
+    "preexistingEvidenceTouched":  false
+}

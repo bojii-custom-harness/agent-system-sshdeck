@@ -1,0 +1,13 @@
+{
+    "sourceCommit":  "2107539cb4d1df65e071f01640e8c3406ed14e6f",
+    "candidateArchive":  "docs/handoffs/sshdeck-system-integration/07/candidate/v0.1.3/agent-system-sshdeck-0.1.3.tgz",
+    "candidateArchiveSha256Before":  "69DEA1146A326C59574A2BC2A068DCE68B2C1FD55B584D610C2E027C0355A0ED",
+    "candidateArchiveSha256AfterShims":  "69DEA1146A326C59574A2BC2A068DCE68B2C1FD55B584D610C2E027C0355A0ED",
+    "archiveHashUnchanged":  true,
+    "readonlyIntegrationTestBaseline":  "Agent System integration worktree: .scratch/sshdeck-system-integration/test.md",
+    "integrationTestBaselineSha256":  "07444E53D9BD52D718BFC52D26651F652E822CAF9B0EA765A79F5C6BC5F205D1",
+    "handoffHistoricalTestSnapshotSha256":  "5869D5B69C3E661B7B1F7FE19751D632A1FEA85CE6A3FA2D4809D9CC186AC854",
+    "testBaselineWritten":  false,
+    "candidateArchiveSha256AfterCleanup":  "69DEA1146A326C59574A2BC2A068DCE68B2C1FD55B584D610C2E027C0355A0ED",
+    "integrationTestBaselineSha256Final":  "07444E53D9BD52D718BFC52D26651F652E822CAF9B0EA765A79F5C6BC5F205D1"
+}

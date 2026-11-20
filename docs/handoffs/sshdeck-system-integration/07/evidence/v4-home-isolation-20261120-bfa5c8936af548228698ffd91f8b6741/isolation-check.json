@@ -1,0 +1,14 @@
+{
+    "runId":  "bfa5c8936af548228698ffd91f8b6741",
+    "runHomeId":  "bfa5c8936af548228698ffd91f8b6741/sshdeck-home",
+    "homeInitiallyEmptyBeforeFirstSpawn":  true,
+    "parentEnvironmentSetBeforeNpmInstall":  true,
+    "parentEnvironmentSetBeforeEachShim":  true,
+    "firstShim":  "agent-system-sshdeck.cmd",
+    "secondShim":  "sshdeck.cmd",
+    "sameRunHomeForBoth":  true,
+    "homeRemainedEmptyBetweenAndAfterInvocations":  true,
+    "homeEntryCountAfterBoth":  0,
+    "shimsBothExitedZero":  true,
+    "noRunOwnedProcessesBeforeCleanup":  true
+}

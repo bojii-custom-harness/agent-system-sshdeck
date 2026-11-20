@@ -1,0 +1,46 @@
+{
+    "runId":  "bfa5c8936af548228698ffd91f8b6741",
+    "scope":  "Ticket 07 V4 first CLI shim invocation home isolation observation",
+    "setupAttempt1":  {
+                          "result":  "failed-before-child-spawn",
+                          "exitCode":  1,
+                          "toolDeadlineMs":  30000,
+                          "cause":  "PowerShell reserved read-only HOME variable name collision",
+                          "npmOrShimSpawned":  false,
+                          "productDataTouched":  false,
+                          "recovery":  "renamed variable to sshdeckHomePath; run-specific directories then prepared and verified"
+                      },
+    "diagnosticAttempt":  {
+                              "purpose":  "classify prior isolated empty-host-list output without displaying it",
+                              "result":  "first helper failed because the PowerShell runtime lacks SHA256.HashData",
+                              "toolDeadlineMs":  30000,
+                              "recovery":  "ordinal string comparison succeeded; two non-empty baseline lines matched; sensitive-pattern scan found no match"
+                          },
+    "installation":  {
+                         "command":  "npm.cmd install --prefix \u003crun-prefix\u003e --ignore-scripts --no-audit --no-fund \u003ccandidate-archive\u003e",
+                         "runner":  "existing V4 evidence-runner.cjs",
+                         "runHomeId":  "bfa5c8936af548228698ffd91f8b6741/sshdeck-home",
+                         "parentEnvironmentSetBeforeSpawn":  true,
+                         "exitCode":  0,
+                         "timedOut":  false,
+                         "timeoutMs":  120000,
+                         "commandDeadlineMs":  110000,
+                         "cleanupReserveMs":  10000,
+                         "elapsedMs":  3932,
+                         "stdoutBytes":  25,
+                         "stderrBytes":  209,
+                         "packageInstalled":  true,
+                         "rawOutputRetainedInProductEvidence":  false
+                     },
+    "shimInvocations":  [
+                            "agent-system-sshdeck.cmd host list",
+                            "sshdeck.cmd host list"
+                        ],
+    "externalActions":  {
+                            "push":  false,
+                            "tag":  false,
+                            "npmPublish":  false,
+                            "githubRelease":  false
+                        },
+    "preexistingReviewFixEvidenceHandling":  "Git status path names only; review-fixes-20261120-01 through -13 contents not read, modified, moved, or deleted."
+}
