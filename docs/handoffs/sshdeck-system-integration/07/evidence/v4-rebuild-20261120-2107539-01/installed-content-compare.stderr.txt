@@ -1,0 +1,15 @@
+C:\Users\andt3\desktop\agent-system\.worktree\sshdeck-system-integration-sshdeck-tickets-07\docs\handoffs\sshdeck-system-integration\07\evidence\v4-rebuild-20261120-2107539-01\compare-installed-package.cjs:21
+const record = JSON.parse(fs.readFileSync(path.join(candidateDir, 'packlist.json'), 'utf8'))[0];
+                                                    ^
+
+ReferenceError: candidateDir is not defined
+    at Object.<anonymous> (C:\Users\andt3\desktop\agent-system\.worktree\sshdeck-system-integration-sshdeck-tickets-07\docs\handoffs\sshdeck-system-integration\07\evidence\v4-rebuild-20261120-2107539-01\compare-installed-package.cjs:21:53)
+    at Module._compile (node:internal/modules/cjs/loader:1929:14)
+    at Object..js (node:internal/modules/cjs/loader:2060:10)
+    at Module.load (node:internal/modules/cjs/loader:1651:32)
+    at Module._load (node:internal/modules/cjs/loader:1443:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+
+Node.js v24.20.0

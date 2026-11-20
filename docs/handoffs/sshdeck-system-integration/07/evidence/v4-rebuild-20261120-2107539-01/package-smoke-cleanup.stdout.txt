@@ -1,0 +1,13 @@
+{
+  "result": "passed",
+  "runId": "v4-rebuild-20261120-2107539-01-package-smoke-cleanup-01",
+  "smokeEvidence": "package-smoke.json",
+  "serviceCliStopped": true,
+  "serviceProcessAlive": false,
+  "ports": {
+    "18792": true,
+    "18793": true
+  },
+  "runScopedSmokeTempDirs": [],
+  "verifiedAt": "2026-11-20T04:32:39.181Z"
+}

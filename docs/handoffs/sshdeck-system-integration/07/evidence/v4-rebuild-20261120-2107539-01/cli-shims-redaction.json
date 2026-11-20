@@ -1,0 +1,9 @@
+{
+    "runId":  "v4-rebuild-20261120-2107539-01-cli-shims-redaction-01",
+    "result":  "redacted",
+    "affectedFile":  "cli-shims.stdout.txt",
+    "reason":  "首次 host list 輸出包含使用者既有 SSHDeck 主機欄位與本機 key path；依資料保護規則不保留敏感原文。",
+    "action":  "原始 stdout 已以遮蔽標記取代；本輪另以隔離 APPDATA/SSHDECK_HOME 重跑兩個 shim。",
+    "originalExitCode":  0,
+    "redactedAt":  "2026-11-20T04:31:45.4803740Z"
+}

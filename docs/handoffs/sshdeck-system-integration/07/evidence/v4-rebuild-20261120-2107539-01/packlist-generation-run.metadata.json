@@ -1,0 +1,23 @@
+{
+  "runId": "v4-rebuild-20261120-2107539-01-packlist-generation-01",
+  "command": "C:\\Program Files\\nodejs\\node.exe",
+  "args": [
+    "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\generate-packlist.cjs"
+  ],
+  "cwd": "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+  "nodeVersion": "v24.20.0",
+  "timeoutMs": 30000,
+  "commandDeadlineMs": 25000,
+  "cleanupReserveMs": 5000,
+  "startedAt": "2026-11-20T04:25:05.693Z",
+  "finishedAt": "2026-11-20T04:25:05.799Z",
+  "elapsedMs": 106,
+  "timedOut": false,
+  "exitCode": 0,
+  "signal": null,
+  "spawnError": null,
+  "processId": 3532,
+  "treeKill": null,
+  "stdout": "packlist-generation.stdout.txt",
+  "stderr": "packlist-generation.stderr.txt"
+}

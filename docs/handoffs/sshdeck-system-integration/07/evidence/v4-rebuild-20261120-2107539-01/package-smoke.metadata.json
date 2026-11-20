@@ -1,0 +1,25 @@
+{
+  "runId": "v4-rebuild-20261120-2107539-01-package-smoke-01",
+  "command": "C:\\Program Files\\nodejs\\node.exe",
+  "args": [
+    "scripts/smoke-release-package.js",
+    "--installed",
+    "C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode\\sshdeck-ticket07-v4-2107539-01\\node_modules\\agent-system-sshdeck"
+  ],
+  "cwd": "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+  "nodeVersion": "v24.20.0",
+  "timeoutMs": 60000,
+  "commandDeadlineMs": 50000,
+  "cleanupReserveMs": 10000,
+  "startedAt": "2026-11-20T04:30:55.613Z",
+  "finishedAt": "2026-11-20T04:30:56.032Z",
+  "elapsedMs": 419,
+  "timedOut": false,
+  "exitCode": 0,
+  "signal": null,
+  "spawnError": null,
+  "processId": 27980,
+  "treeKill": null,
+  "stdout": "package-smoke.stdout.txt",
+  "stderr": "package-smoke.stderr.txt"
+}

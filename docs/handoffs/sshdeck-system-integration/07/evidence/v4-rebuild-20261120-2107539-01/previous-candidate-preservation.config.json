@@ -1,0 +1,9 @@
+{
+    "runId":  "v4-rebuild-20261120-2107539-01-preserve-old-candidate",
+    "cwd":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+    "sourceDirectory":  "docs/handoffs/sshdeck-system-integration/07/candidate/v0.1.3",
+    "destinationDirectory":  "docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\previous-candidate",
+    "expectedSourceCommit":  "265769e815d608d7bfc1ce7cb83fc46b74cbfd0c",
+    "expectedArchiveSha256":  "0db06a8fd40ff82bd27ce9200034a47ecffa1332fc1d59999f1196f520dadbc9",
+    "startedAt":  "2026-11-20T04:19:48.0125726Z"
+}

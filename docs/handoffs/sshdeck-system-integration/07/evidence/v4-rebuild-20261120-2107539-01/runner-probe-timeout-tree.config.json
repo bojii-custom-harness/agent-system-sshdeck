@@ -1,0 +1,14 @@
+{
+    "runId":  "v4-rebuild-20261120-2107539-01-runner-probe-timeout-tree-01",
+    "command":  "C:\\Program Files\\nodejs\\node.exe",
+    "args":  [
+                 "-e",
+                 "const { spawn } = require(\"node:child_process\"); const child = spawn(process.execPath, [\"-e\", \"setInterval(() =\u003e {}, 1000)\"], { windowsHide: true, stdio: \"ignore\" }); process.stdout.write(String(child.pid) + \"\\n\"); setInterval(() =\u003e {}, 1000);"
+             ],
+    "cwd":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+    "timeoutMs":  8000,
+    "cleanupReserveMs":  3000,
+    "stdoutPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\runner-probe-timeout-tree.stdout.txt",
+    "stderrPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\runner-probe-timeout-tree.stderr.txt",
+    "metadataPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\runner-probe-timeout-tree.metadata.json"
+}

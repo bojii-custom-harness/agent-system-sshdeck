@@ -1,0 +1,25 @@
+{
+  "runId": "v4-rebuild-20261120-2107539-01-cli-shims-isolated-01",
+  "command": "cmd.exe",
+  "args": [
+    "/d",
+    "/c",
+    "C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode\\sshdeck-ticket07-v4-2107539-01\\node_modules\\.bin\\agent-system-sshdeck.cmd host list && C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode\\sshdeck-ticket07-v4-2107539-01\\node_modules\\.bin\\sshdeck.cmd host list"
+  ],
+  "cwd": "C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode\\sshdeck-ticket07-v4-2107539-01",
+  "nodeVersion": "v24.20.0",
+  "timeoutMs": 30000,
+  "commandDeadlineMs": 25000,
+  "cleanupReserveMs": 5000,
+  "startedAt": "2026-11-20T04:32:04.963Z",
+  "finishedAt": "2026-11-20T04:32:05.272Z",
+  "elapsedMs": 309,
+  "timedOut": false,
+  "exitCode": 0,
+  "signal": null,
+  "spawnError": null,
+  "processId": 27944,
+  "treeKill": null,
+  "stdout": "cli-shims-isolated.stdout.txt",
+  "stderr": "cli-shims-isolated.stderr.txt"
+}

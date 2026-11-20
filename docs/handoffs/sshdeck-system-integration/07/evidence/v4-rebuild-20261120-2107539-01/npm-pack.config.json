@@ -1,0 +1,16 @@
+{
+    "runId":  "v4-rebuild-20261120-2107539-01-npm-pack-01",
+    "command":  "cmd.exe",
+    "args":  [
+                 "/d",
+                 "/s",
+                 "/c",
+                 "npm.cmd pack --json --pack-destination C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\npm-pack-staging"
+             ],
+    "cwd":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+    "timeoutMs":  120000,
+    "cleanupReserveMs":  10000,
+    "stdoutPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\npm-pack.stdout.txt",
+    "stderrPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\npm-pack.stderr.txt",
+    "metadataPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\npm-pack.metadata.json"
+}

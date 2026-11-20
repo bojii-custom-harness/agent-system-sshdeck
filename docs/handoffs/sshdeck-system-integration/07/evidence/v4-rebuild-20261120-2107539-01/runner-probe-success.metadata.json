@@ -1,0 +1,24 @@
+{
+  "runId": "v4-rebuild-20261120-2107539-01-runner-probe-success-01",
+  "command": "C:\\Program Files\\nodejs\\node.exe",
+  "args": [
+    "-e",
+    "process.stdout.write(\"runner-probe-stdout-繁體中文\\n\"); process.stderr.write(\"runner-probe-stderr-✓\\n\");"
+  ],
+  "cwd": "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+  "nodeVersion": "v24.20.0",
+  "timeoutMs": 8000,
+  "commandDeadlineMs": 6000,
+  "cleanupReserveMs": 2000,
+  "startedAt": "2026-11-20T04:21:58.080Z",
+  "finishedAt": "2026-11-20T04:21:58.139Z",
+  "elapsedMs": 59,
+  "timedOut": false,
+  "exitCode": 0,
+  "signal": null,
+  "spawnError": null,
+  "processId": 4300,
+  "treeKill": null,
+  "stdout": "runner-probe-success.stdout.txt",
+  "stderr": "runner-probe-success.stderr.txt"
+}

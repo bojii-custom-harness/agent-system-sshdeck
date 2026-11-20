@@ -1,0 +1,25 @@
+{
+  "runId": "v4-rebuild-20261120-2107539-01-packlist-verify-01",
+  "command": "C:\\Program Files\\nodejs\\node.exe",
+  "args": [
+    "scripts/verify-release-package.js",
+    "--packlist",
+    "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\packlist.json"
+  ],
+  "cwd": "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+  "nodeVersion": "v24.20.0",
+  "timeoutMs": 30000,
+  "commandDeadlineMs": 25000,
+  "cleanupReserveMs": 5000,
+  "startedAt": "2026-11-20T04:26:02.013Z",
+  "finishedAt": "2026-11-20T04:26:02.087Z",
+  "elapsedMs": 74,
+  "timedOut": false,
+  "exitCode": 0,
+  "signal": null,
+  "spawnError": null,
+  "processId": 14500,
+  "treeKill": null,
+  "stdout": "packlist-verify.stdout.txt",
+  "stderr": "packlist-verify.stderr.txt"
+}

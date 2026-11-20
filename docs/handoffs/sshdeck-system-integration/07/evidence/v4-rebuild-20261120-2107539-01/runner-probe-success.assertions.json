@@ -1,0 +1,8 @@
+{
+    "result":  "passed",
+    "exitCode":  0,
+    "stdoutRoundTrip":  "runner-probe-stdout-繁體中文",
+    "stderrRoundTrip":  "runner-probe-stderr-✓",
+    "encoding":  "UTF-8",
+    "timedOut":  false
+}

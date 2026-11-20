@@ -1,0 +1,15 @@
+{
+    "runId":  "v4-rebuild-20261120-2107539-01-source-verify-01",
+    "command":  "npm.cmd",
+    "args":  [
+                 "run",
+                 "verify:package"
+             ],
+    "cwd":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+    "shell":  true,
+    "timeoutMs":  120000,
+    "cleanupReserveMs":  10000,
+    "stdoutPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\source-verify.stdout.txt",
+    "stderrPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\source-verify.stderr.txt",
+    "metadataPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\source-verify.metadata.json"
+}

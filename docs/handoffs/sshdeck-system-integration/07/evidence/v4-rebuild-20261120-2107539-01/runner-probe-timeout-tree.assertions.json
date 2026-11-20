@@ -1,0 +1,9 @@
+{
+    "result":  "passed",
+    "timedOut":  true,
+    "exitCode":  1,
+    "taskkillStatus":  0,
+    "parentPid":  27108,
+    "childPid":  13644,
+    "descendantStillRunning":  false
+}

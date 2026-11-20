@@ -2,10 +2,10 @@
 .opencode/skills/agent-system-sshdeck/SKILL.md | 7308 bytes | mode 420
 README.md | 17424 bytes | mode 420
 bin/sshdeck.js | 115573 bytes | mode 420
-docs/service-api.md | 11061 bytes | mode 420
+docs/service-api.md | 12229 bytes | mode 420
 lib/service-client.js | 10857 bytes | mode 420
 lib/service-contract.js | 88 bytes | mode 420
-lib/service-server.js | 39670 bytes | mode 420
+lib/service-server.js | 41296 bytes | mode 420
 lib/service-store.js | 6661 bytes | mode 420
 lib/ssh.js | 30901 bytes | mode 420
 package.json | 883 bytes | mode 420

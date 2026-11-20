@@ -1,0 +1,10 @@
+{
+  "runId": "v4-rebuild-20261120-2107539-01-installed-content-compare-01",
+  "result": "failed-before-comparison",
+  "exitCode": 1,
+  "failure": "ReferenceError: candidateDir is not defined at compare-installed-package.cjs:21",
+  "scope": "Evidence verifier only; no product source or isolated package files were modified.",
+  "cleanup": "The installed package prefix was retained for the corrected verification; no smoke service was started.",
+  "substantiveCorrection": "Restore the candidateDir binding so the verifier reads the current candidate packlist.",
+  "nextAttempt": "installed-content-compare round 02 attempt 01"
+}

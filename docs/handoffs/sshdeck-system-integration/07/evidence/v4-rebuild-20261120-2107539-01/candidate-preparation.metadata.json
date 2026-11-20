@@ -1,0 +1,16 @@
+{
+  "runId": "v4-rebuild-20261120-2107539-01-candidate-preparation-01",
+  "result": "passed",
+  "sourceCommit": "2107539cb4d1df65e071f01640e8c3406ed14e6f",
+  "sourceTree": "1ef22754b0be9a02de8dd67395768956cc1b794b",
+  "replacementFiles": [
+    "agent-system-sshdeck-0.1.3.tgz",
+    "SHA256SUMS",
+    "file-list.txt",
+    "packlist.json",
+    "provenance.json"
+  ],
+  "archiveSize": 76156,
+  "archiveSha256": "69dea1146a326c59574a2bc2a068dce68b2c1fd55b584d610c2e027c0355a0ed",
+  "preparedAt": "2026-11-20T04:27:06.457Z"
+}

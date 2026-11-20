@@ -1,0 +1,24 @@
+{
+  "runId": "v4-rebuild-20261120-2107539-01-runner-probe-nonzero-01",
+  "command": "C:\\Program Files\\nodejs\\node.exe",
+  "args": [
+    "-e",
+    "process.stdout.write(\"expected-nonzero\\n\"); process.stderr.write(\"expected-error\\n\"); process.exit(17);"
+  ],
+  "cwd": "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+  "nodeVersion": "v24.20.0",
+  "timeoutMs": 8000,
+  "commandDeadlineMs": 6000,
+  "cleanupReserveMs": 2000,
+  "startedAt": "2026-11-20T04:21:58.058Z",
+  "finishedAt": "2026-11-20T04:21:58.123Z",
+  "elapsedMs": 65,
+  "timedOut": false,
+  "exitCode": 17,
+  "signal": null,
+  "spawnError": null,
+  "processId": 996,
+  "treeKill": null,
+  "stdout": "runner-probe-nonzero.stdout.txt",
+  "stderr": "runner-probe-nonzero.stderr.txt"
+}

@@ -1,0 +1,13 @@
+{
+    "runId":  "v4-rebuild-20261120-2107539-01-candidate-preparation-01",
+    "command":  "C:\\Program Files\\nodejs\\node.exe",
+    "args":  [
+                 "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\prepare-candidate.cjs"
+             ],
+    "cwd":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+    "timeoutMs":  30000,
+    "cleanupReserveMs":  5000,
+    "stdoutPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\candidate-preparation.stdout.txt",
+    "stderrPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\candidate-preparation.stderr.txt",
+    "metadataPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\candidate-preparation-run.metadata.json"
+}

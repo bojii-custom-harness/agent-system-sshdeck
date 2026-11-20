@@ -1,0 +1,118 @@
+{
+  "result": "passed",
+  "sourceCommit": "2107539cb4d1df65e071f01640e8c3406ed14e6f",
+  "package": "agent-system-sshdeck@0.1.3",
+  "installedRoot": "C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode\\sshdeck-ticket07-v4-2107539-01\\node_modules\\agent-system-sshdeck",
+  "entryCount": 15,
+  "sourceArchiveContentsMatch": true,
+  "installedContentsMatch": true,
+  "readmeUsesPackageVersionForTag": true,
+  "files": [
+    {
+      "path": ".opencode/skills/agent-system-sshdeck/references/install.md",
+      "sourceSize": 2733,
+      "installedSize": 2733,
+      "sourceSha256": "18339ec790dcd9e30bd9326b5a8ea2dec483e9b8724afa58ec7e201db17c1705",
+      "installedSha256": "18339ec790dcd9e30bd9326b5a8ea2dec483e9b8724afa58ec7e201db17c1705"
+    },
+    {
+      "path": ".opencode/skills/agent-system-sshdeck/SKILL.md",
+      "sourceSize": 7308,
+      "installedSize": 7308,
+      "sourceSha256": "53059937797b6fa709baafa2f11fc080e3185aa769e309b2edc101f7fe00349e",
+      "installedSha256": "53059937797b6fa709baafa2f11fc080e3185aa769e309b2edc101f7fe00349e"
+    },
+    {
+      "path": "README.md",
+      "sourceSize": 17424,
+      "installedSize": 17424,
+      "sourceSha256": "58de4d6753cccaa226ebd294e711bb48e18ea97347555031e322ddff3f31b21f",
+      "installedSha256": "58de4d6753cccaa226ebd294e711bb48e18ea97347555031e322ddff3f31b21f"
+    },
+    {
+      "path": "bin/sshdeck.js",
+      "sourceSize": 115573,
+      "installedSize": 115572,
+      "sourceSha256": "74d2902456283c2b830563befdf5b57e57a0f7d78837f0aeb59adfcedf0707e9",
+      "installedSha256": "ec44096b727e149ca5211c0008712f729b460a8d653fef5ad9726475f80044da",
+      "installedNormalization": "npm on Windows converts the bin shebang CRLF to LF"
+    },
+    {
+      "path": "docs/service-api.md",
+      "sourceSize": 12229,
+      "installedSize": 12229,
+      "sourceSha256": "e1d11f88e963d1aabd3b1a6826f9bd68d927a2fb6f7101c8169f50846ccc0062",
+      "installedSha256": "e1d11f88e963d1aabd3b1a6826f9bd68d927a2fb6f7101c8169f50846ccc0062"
+    },
+    {
+      "path": "lib/service-client.js",
+      "sourceSize": 10857,
+      "installedSize": 10857,
+      "sourceSha256": "d868782d321f5978214dcb7827655722d90badf0cbb5ff874ecc9bd9500f5f8d",
+      "installedSha256": "d868782d321f5978214dcb7827655722d90badf0cbb5ff874ecc9bd9500f5f8d"
+    },
+    {
+      "path": "lib/service-contract.js",
+      "sourceSize": 88,
+      "installedSize": 88,
+      "sourceSha256": "09eee4de432a54ba32a433062dd03bf334b0ef4d7d53ceb031fd0d45b3b35062",
+      "installedSha256": "09eee4de432a54ba32a433062dd03bf334b0ef4d7d53ceb031fd0d45b3b35062"
+    },
+    {
+      "path": "lib/service-server.js",
+      "sourceSize": 41296,
+      "installedSize": 41296,
+      "sourceSha256": "d55586ac8c4cf0becd424ce0ce4f65d08246d48feedfb9ca8087da8e46da9d9a",
+      "installedSha256": "d55586ac8c4cf0becd424ce0ce4f65d08246d48feedfb9ca8087da8e46da9d9a"
+    },
+    {
+      "path": "lib/service-store.js",
+      "sourceSize": 6661,
+      "installedSize": 6661,
+      "sourceSha256": "80060773204b68d2416d5fcc57a578b3ab07c49ad1b27b53956ce142a9ff81a7",
+      "installedSha256": "80060773204b68d2416d5fcc57a578b3ab07c49ad1b27b53956ce142a9ff81a7"
+    },
+    {
+      "path": "lib/ssh.js",
+      "sourceSize": 30901,
+      "installedSize": 30901,
+      "sourceSha256": "f4efb50f199176d7d18fb7b895792d0105eff3e982931fecd6b9fab5b2c44d55",
+      "installedSha256": "f4efb50f199176d7d18fb7b895792d0105eff3e982931fecd6b9fab5b2c44d55"
+    },
+    {
+      "path": "package.json",
+      "sourceSize": 883,
+      "installedSize": 883,
+      "sourceSha256": "970ad476efd142fdf19609902acbc0c910ee1ce4442234b6ea3b8fe3fa60eb64",
+      "installedSha256": "970ad476efd142fdf19609902acbc0c910ee1ce4442234b6ea3b8fe3fa60eb64"
+    },
+    {
+      "path": "public/connection-guide.js",
+      "sourceSize": 31104,
+      "installedSize": 31104,
+      "sourceSha256": "7ba73b45a951c291b806a80ec9cc64ad16ed8fb70326f5f251fdee4faa347982",
+      "installedSha256": "7ba73b45a951c291b806a80ec9cc64ad16ed8fb70326f5f251fdee4faa347982"
+    },
+    {
+      "path": "public/terminal.js",
+      "sourceSize": 3609,
+      "installedSize": 3609,
+      "sourceSha256": "e9bb292b507f6dde329be9ebf1b88dd091dbfcddb6098bf4842d38a17dc3434e",
+      "installedSha256": "e9bb292b507f6dde329be9ebf1b88dd091dbfcddb6098bf4842d38a17dc3434e"
+    },
+    {
+      "path": "public/workspace.css",
+      "sourceSize": 5084,
+      "installedSize": 5084,
+      "sourceSha256": "4c652b123851af83a7681aacdcfad6efc030375f019845afba0ede37a6885689",
+      "installedSha256": "4c652b123851af83a7681aacdcfad6efc030375f019845afba0ede37a6885689"
+    },
+    {
+      "path": "public/workspace.js",
+      "sourceSize": 10503,
+      "installedSize": 10503,
+      "sourceSha256": "38c8caac3e2409865f44ea879d2ce936adced7747dc2ed2c12c7948e2d745aed",
+      "installedSha256": "38c8caac3e2409865f44ea879d2ce936adced7747dc2ed2c12c7948e2d745aed"
+    }
+  ]
+}

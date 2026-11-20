@@ -1,0 +1,30 @@
+{
+  "runId": "v4-rebuild-20261120-2107539-01-resource-cleanup-01",
+  "result": "passed",
+  "removed": [
+    {
+      "path": "../../../../AppData/Local/Temp/opencode/sshdeck-ticket07-v4-2107539-01",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "docs/handoffs/sshdeck-system-integration/07/evidence/v4-rebuild-20261120-2107539-01/npm-pack-staging",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "docs/handoffs/sshdeck-system-integration/07/evidence/v4-rebuild-20261120-2107539-01/candidate-replacement",
+      "existed": true,
+      "absentAfter": true
+    }
+  ],
+  "smokePorts": {
+    "18792": true,
+    "18793": true
+  },
+  "serviceProcessAlive": false,
+  "remainingRunScopedSmokeDirs": [],
+  "oldCandidateSnapshotPreserved": true,
+  "candidateArchiveRetained": true,
+  "finishedAt": "2026-11-20T04:33:20.729Z"
+}

@@ -1,0 +1,7 @@
+{
+    "result":  "passed",
+    "exitCode":  17,
+    "stdout":  "expected-nonzero",
+    "stderr":  "expected-error",
+    "timedOut":  false
+}

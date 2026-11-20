@@ -1,0 +1,14 @@
+{
+    "runId":  "v4-rebuild-20261120-2107539-01-runner-probe-success-01",
+    "command":  "C:\\Program Files\\nodejs\\node.exe",
+    "args":  [
+                 "-e",
+                 "process.stdout.write(\"runner-probe-stdout-繁體中文\\n\"); process.stderr.write(\"runner-probe-stderr-✓\\n\");"
+             ],
+    "cwd":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+    "timeoutMs":  8000,
+    "cleanupReserveMs":  2000,
+    "stdoutPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\runner-probe-success.stdout.txt",
+    "stderrPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\runner-probe-success.stderr.txt",
+    "metadataPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\runner-probe-success.metadata.json"
+}

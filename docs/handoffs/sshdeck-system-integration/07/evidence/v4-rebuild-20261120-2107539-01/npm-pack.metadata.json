@@ -1,0 +1,26 @@
+{
+  "runId": "v4-rebuild-20261120-2107539-01-npm-pack-01",
+  "command": "cmd.exe",
+  "args": [
+    "/d",
+    "/s",
+    "/c",
+    "npm.cmd pack --json --pack-destination C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\npm-pack-staging"
+  ],
+  "cwd": "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+  "nodeVersion": "v24.20.0",
+  "timeoutMs": 120000,
+  "commandDeadlineMs": 110000,
+  "cleanupReserveMs": 10000,
+  "startedAt": "2026-11-20T04:24:57.843Z",
+  "finishedAt": "2026-11-20T04:24:58.939Z",
+  "elapsedMs": 1096,
+  "timedOut": false,
+  "exitCode": 0,
+  "signal": null,
+  "spawnError": null,
+  "processId": 5184,
+  "treeKill": null,
+  "stdout": "npm-pack.stdout.txt",
+  "stderr": "npm-pack.stderr.txt"
+}

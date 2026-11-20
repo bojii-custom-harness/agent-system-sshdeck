@@ -1,0 +1,15 @@
+{
+    "runId":  "v4-rebuild-20261120-2107539-01-cli-shims-01",
+    "command":  "cmd.exe",
+    "args":  [
+                 "/d",
+                 "/c",
+                 "C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode\\sshdeck-ticket07-v4-2107539-01\\node_modules\\.bin\\agent-system-sshdeck.cmd host list \u0026\u0026 C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode\\sshdeck-ticket07-v4-2107539-01\\node_modules\\.bin\\sshdeck.cmd host list"
+             ],
+    "cwd":  "C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode\\sshdeck-ticket07-v4-2107539-01",
+    "timeoutMs":  30000,
+    "cleanupReserveMs":  5000,
+    "stdoutPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\cli-shims.stdout.txt",
+    "stderrPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\cli-shims.stderr.txt",
+    "metadataPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-2107539-01\\cli-shims.metadata.json"
+}

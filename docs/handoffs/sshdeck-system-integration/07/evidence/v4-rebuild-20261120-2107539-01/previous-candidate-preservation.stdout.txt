@@ -1,0 +1,16 @@
+{
+    "runId":  "v4-rebuild-20261120-2107539-01-preserve-old-candidate",
+    "result":  "passed",
+    "sourceCommit":  "265769e815d608d7bfc1ce7cb83fc46b74cbfd0c",
+    "archive":  "agent-system-sshdeck-0.1.3.tgz",
+    "archiveSha256":  "0db06a8fd40ff82bd27ce9200034a47ecffa1332fc1d59999f1196f520dadbc9",
+    "files":  {
+                  "file-list.txt":  "37513ce79c5e2e3a00711e6cf211a786dbe20ea62510552f76c88201df638702",
+                  "SHA256SUMS":  "3ea39d31722d6d7785a9f4b2b597b2d2eb27911f40099a22d51c872485131a8b",
+                  "agent-system-sshdeck-0.1.3.tgz":  "0db06a8fd40ff82bd27ce9200034a47ecffa1332fc1d59999f1196f520dadbc9",
+                  "provenance.json":  "354d95e9c2fd036946517d4026b5f4e2c8daee87720a0efd8dd40f48531b0b35",
+                  "packlist.json":  "b6f0d1eb3f0915c82d965629efa5b2468cb266fc984ed3652379350554e25498"
+              },
+    "startedAt":  "2026-11-20T04:19:48.0125726Z",
+    "finishedAt":  "2026-11-20T04:19:48.2673143Z"
+}
