@@ -1,0 +1,25 @@
+{
+  "fixture": "WSL Ubuntu transient OpenSSH",
+  "root": "/tmp/sshdeck-ticket01-0a6be22c-43dd-4c4a-b15c-d827990287cc-Pfrxqj",
+  "units": [
+    {
+      "unit": "sshdeck-ticket01-0a6be22c-43dd-4c4a-b15c-d827990287cc-a.service",
+      "loadState": "not-found"
+    },
+    {
+      "unit": "sshdeck-ticket01-0a6be22c-43dd-4c4a-b15c-d827990287cc-b.service",
+      "loadState": "not-found"
+    }
+  ],
+  "ports": [
+    {
+      "port": 2227,
+      "free": true
+    },
+    {
+      "port": 2228,
+      "free": true
+    }
+  ],
+  "cleanup": "transient units stopped; exact per-run directory removed"
+}

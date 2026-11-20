@@ -1,0 +1,10 @@
+✔ service terminal WebSocket 僅接受 UI token 並拒絕非法來源、未知主機與鎖定狀態 (70.6339ms)
+✔ 真實 Chromium 經 UI adapter/service WebSocket 操作隔離 OpenSSH PTY，並驗證取消、lock、shutdown 與 resize (14782.8883ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 15191.8774

@@ -1,0 +1,19 @@
+✖ standalone Chromium terminal remains compatible with real OpenSSH PTY (20895.0189ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 21263.2018
+
+✖ failing tests:
+
+test at test\service-terminal.test.js:698:1
+✖ standalone Chromium terminal remains compatible with real OpenSSH PTY (20895.0189ms)
+  page.waitForFunction: Timeout 10000ms exceeded.
+      at TestContext.<anonymous> (C:\Users\andt3\desktop\agent-system\.worktree\sshdeck-system-integration-sshdeck-tickets-07\test\service-terminal.test.js:771:16) {
+    name: 'TimeoutError',
+    log: []
+  }

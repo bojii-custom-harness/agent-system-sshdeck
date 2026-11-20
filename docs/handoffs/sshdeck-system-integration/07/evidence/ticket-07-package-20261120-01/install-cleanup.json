@@ -1,0 +1,6 @@
+{
+    "isolatedInstallPrefix":  "C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode\\sshdeck-ticket-07-v4-fa5068ce4b73474fb9a8897c80e1b76b",
+    "packageSmoke":  "passed",
+    "cleanup":  "exact isolated install directory removed",
+    "removedAt":  "2026-11-20T00:50:37.3852247Z"
+}

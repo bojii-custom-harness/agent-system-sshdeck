@@ -1,0 +1,20 @@
+﻿{
+    "windowsListeners":  [
+
+                         ],
+    "wslListeners":  [
+
+                     ],
+    "wslUserUnits":  [
+
+                     ],
+    "wslSystemUnits":  [
+
+                       ],
+    "wslExitCodes":  [
+                         0,
+                         0,
+                         0
+                     ],
+    "result":  "clear"
+}

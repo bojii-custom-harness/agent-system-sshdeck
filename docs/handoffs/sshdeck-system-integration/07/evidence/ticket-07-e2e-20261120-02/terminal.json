@@ -1,0 +1,69 @@
+{
+  "runId": "a6df84d5-402d-4b07-9cd7-7254f94483a3",
+  "processId": 9252,
+  "nodeVersion": "v24.20.0",
+  "browserVersion": "156.0.8078.4",
+  "uiPort": 18792,
+  "servicePort": 18793,
+  "fixturePorts": [
+    2227,
+    2228
+  ],
+  "status": "passed",
+  "stage": "all-real-terminal-assertions-passed",
+  "hostFingerprints": {
+    "a": "SHA256:HC7rGqnh+1ol5eO16WjpxvlbxBgWcdWIMoK6i4pDObw",
+    "b": "SHA256:A09RA9zyxz2zlqi+Ycyq0LSMHCppght9w4WojSKj6zM"
+  },
+  "uiCleanup": "passed",
+  "serviceCleanup": "passed",
+  "fixtureCleanup": "passed",
+  "serviceUpgradeCount": 9,
+  "upstreamAuthorization": [
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    }
+  ]
+}

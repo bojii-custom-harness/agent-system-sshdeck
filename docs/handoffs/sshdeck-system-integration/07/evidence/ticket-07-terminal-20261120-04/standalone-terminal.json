@@ -1,0 +1,20 @@
+{
+  "runId": "74091236-7667-454d-bbd6-f2e3f3ed0cec",
+  "processId": 18648,
+  "nodeVersion": "v24.20.0",
+  "browserVersion": "156.0.8078.4",
+  "uiPort": 18792,
+  "fixturePorts": [
+    2227,
+    2228
+  ],
+  "status": "passed",
+  "stage": "standalone-real-terminal-passed",
+  "hostFingerprints": {
+    "a": "SHA256:nQLfGzz2PfZUea21lQiXaGh41LI08FnEzyqsUm+uDsQ",
+    "b": "SHA256:ArDkMO3S8whd8QUylSQN5YypHMYqwXqoGrt6fNL/+LE"
+  },
+  "uiCleanup": "passed",
+  "fixtureCleanup": "passed",
+  "shellUpgradeCount": 1
+}

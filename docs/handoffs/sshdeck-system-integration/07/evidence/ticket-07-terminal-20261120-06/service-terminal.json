@@ -1,0 +1,70 @@
+{
+  "runId": "72c950f7-0fa8-4f63-bd8e-be8f52aad854",
+  "processId": 8128,
+  "nodeVersion": "v24.20.0",
+  "browserVersion": "156.0.8078.4",
+  "uiPort": 18792,
+  "servicePort": 18793,
+  "fixturePorts": [
+    2227,
+    2228
+  ],
+  "status": "failed",
+  "stage": "verify-normal-remote-shell-exit-and-reopen",
+  "hostFingerprints": {
+    "a": "SHA256:U7KyybW7u/MSQqy76IArfd5M/cQ+MPIvywn1vndwKVQ",
+    "b": "SHA256:AHPsOsgoxj6JgOCLo6+NnjELZQQifT8XxQCyZZ/qVeM"
+  },
+  "failure": "page.waitForFunction: Timeout 10000ms exceeded.",
+  "uiCleanup": "passed",
+  "serviceCleanup": "passed",
+  "fixtureCleanup": "passed",
+  "serviceUpgradeCount": 9,
+  "upstreamAuthorization": [
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    },
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    }
+  ]
+}

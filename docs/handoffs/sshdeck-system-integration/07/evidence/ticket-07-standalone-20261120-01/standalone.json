@@ -1,0 +1,21 @@
+{
+  "runId": "974bb546-c8b9-4520-852c-a62396325c89",
+  "processId": 16512,
+  "nodeVersion": "v24.20.0",
+  "browserVersion": "156.0.8078.4",
+  "uiPort": 18792,
+  "fixturePorts": [
+    2227,
+    2228
+  ],
+  "status": "failed",
+  "stage": "open-standalone-terminal-and-confirm-host-key",
+  "hostFingerprints": {
+    "a": "SHA256:c1VgJ3W/lI8mPqBS0/7d+t281k00Ksg5oIJn08hfcaw",
+    "b": "SHA256:ERzGolTmsMIEf4sAdtCpH4L0OITqFvtfuhShrsg5InA"
+  },
+  "failure": "page.waitForFunction: Timeout 10000ms exceeded.",
+  "uiCleanup": "passed",
+  "fixtureCleanup": "passed",
+  "shellUpgradeCount": 1
+}

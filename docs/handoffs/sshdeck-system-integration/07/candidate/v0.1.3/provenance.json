@@ -1,0 +1,14 @@
+{
+    "ticket":  "SSHDeck Ticket 07",
+    "baseCommit":  "c2b96f437bcf1ae1122b113794292996aaca485f",
+    "sourceCommit":  "49646597d11b33b3e42f2836dd471b67570b822c",
+    "packageName":  "agent-system-sshdeck",
+    "version":  "0.1.3",
+    "archive":  "agent-system-sshdeck-0.1.3.tgz",
+    "archiveSha256":  "241b6e8e42affeddfac737c6ef1335c3c48f39f1519f3c89986d052471efcb32",
+    "entryCount":  15,
+    "unpackedSize":  292678,
+    "packlist":  "packlist.json",
+    "fileList":  "file-list.txt",
+    "createdAt":  "2026-11-20T00:47:01.9328083Z"
+}

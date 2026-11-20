@@ -1,0 +1,24 @@
+{
+  "runId": "8fc667fd-2cb0-48a2-84c8-d23a57e5db04",
+  "processId": 29436,
+  "nodeVersion": "v24.20.0",
+  "browserVersion": "156.0.8078.4",
+  "uiPort": 18792,
+  "servicePort": 18793,
+  "fixturePorts": [
+    2227,
+    2228
+  ],
+  "status": "failed",
+  "stage": "open-first-service-terminal-and-confirm-fingerprint",
+  "hostFingerprints": {
+    "a": "SHA256:T6ztj4vupF1p4NXgjC8nDVBnPz5LA9d1Jh/uv4KJWM8",
+    "b": "SHA256:SspxRX6cJIWhCPzWKusL0QDsvN6Iag6kjlfxWf+tUNs"
+  },
+  "failure": "Expected values to be strictly equal:\n\nfalse !== true\n",
+  "uiCleanup": "passed",
+  "serviceCleanup": "passed",
+  "fixtureCleanup": "passed",
+  "serviceUpgradeCount": 0,
+  "upstreamAuthorization": []
+}

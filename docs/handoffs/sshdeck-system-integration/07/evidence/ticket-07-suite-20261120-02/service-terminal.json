@@ -1,0 +1,30 @@
+{
+  "runId": "d7c66148-787b-487c-b9de-e04960f2d792",
+  "processId": 21556,
+  "nodeVersion": "v24.20.0",
+  "browserVersion": "156.0.8078.4",
+  "uiPort": 18792,
+  "servicePort": 18793,
+  "fixturePorts": [
+    2227,
+    2228
+  ],
+  "status": "failed",
+  "stage": "exercise-terminal-input-output-and-resize",
+  "hostFingerprints": {
+    "a": "SHA256:jFuK5A8HLsm7oEUupe6O4gTf2RnL9jhbI+zvboTWxwM",
+    "b": "SHA256:CRqqj85d2puph+HWEgunYy9LxOQkX/jhYzPx0rA9xD0"
+  },
+  "failure": "真實 PTY 必須回報 wide terminal 尺寸",
+  "uiCleanup": "passed",
+  "serviceCleanup": "passed",
+  "fixtureCleanup": "passed",
+  "serviceUpgradeCount": 1,
+  "upstreamAuthorization": [
+    {
+      "usesUiToken": true,
+      "forwardsBasic": false,
+      "hasQuery": false
+    }
+  ]
+}

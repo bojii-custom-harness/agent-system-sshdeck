@@ -1,0 +1,29 @@
+✔ service terminal WebSocket 僅接受 UI token 並拒絕非法來源、未知主機與鎖定狀態 (80.8892ms)
+✖ 真實 Chromium 經 UI adapter/service WebSocket 操作隔離 OpenSSH PTY，並驗證取消、lock、shutdown 與 resize (11431.8154ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11887.5719
+
+✖ failing tests:
+
+test at test\service-terminal.test.js:307:1
+✖ 真實 Chromium 經 UI adapter/service WebSocket 操作隔離 OpenSSH PTY，並驗證取消、lock、shutdown 與 resize (11431.8154ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  false !== true
+
+      at TestContext.<anonymous> (C:\Users\andt3\desktop\agent-system\.worktree\sshdeck-system-integration-sshdeck-tickets-07\test\service-terminal.test.js:423:12)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

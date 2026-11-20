@@ -1,0 +1,91 @@
+
+> agent-system-sshdeck@0.1.2 test
+> node --test --test-concurrency=1
+
+﹣ 建立指南驗證四步流程、新舊金鑰、授權及主動檢查結果 (0.5438ms) # 設定 SSHDECK_PLAYWRIGHT_MODULE 為 Playwright 模組絕對路徑以執行 Chromium 驗證。
+﹣ 指南進度資料損壞或瀏覽器拒絕寫入時仍可使用 (0.0964ms) # 設定 SSHDECK_PLAYWRIGHT_MODULE 為 Playwright 模組絕對路徑以執行 Chromium 驗證。
+﹣ 指南檢查沿用主動解鎖與主機指紋確認，不連線遠端 (0.0723ms) # 設定 SSHDECK_PLAYWRIGHT_MODULE 為 Playwright 模組絕對路徑以執行 Chromium 驗證。
+✔ Docker diagnostics preserve distinct failure causes (0.8565ms)
+﹣ CLI and UI report SSH and Docker separately for authorized, denied, and SSH-failed accounts (0.1061ms) # Set SSHDECK_TEST_DOCKER_* variables to run against the dedicated OpenSSH/Docker test host.
+﹣ authorized account can create, start, inspect, and remove only its uniquely named test container (0.0657ms) # Set SSHDECK_TEST_DOCKER_* variables to run against the dedicated OpenSSH/Docker test host.
+﹣ manual group authorization becomes available after the SSH user logs in again (0.048ms) # Set SSHDECK_TEST_DOCKER_* variables to run against the dedicated OpenSSH/Docker test host.
+✔ test\helpers\openssh-service-fixture.js (45.6345ms)
+✔ test\helpers\service-test-utils.js (45.7642ms)
+✔ CLI host CRUD persists separately and validates errors (1274.2285ms)
+✔ recovers a stale host-data lock (248.9757ms)
+✔ uses platform app data locations and supports an explicit override (0.5039ms)
+✔ Windows browser opener uses a safely separated start command (0.8211ms)
+✔ parallel CLI writes retain every distinct host profile (220.8034ms)
+✔ UI shares CRUD with CLI, edits every connection field, and rejects untrusted origins (307.0291ms)
+✔ UI attempts to open a browser and prints a manual URL when the opener fails (1.6687ms)
+✔ shell argument parser accepts exactly one managed host alias (1.1806ms)
+✔ CLI terminal forwarding resizes the PTY and restores the original raw mode on close (0.3297ms)
+﹣ CLI opens a persistent SSH PTY, accepts interactive input, and reports its final status (0.0696ms) # Set SSHDECK_TEST_SSH_* variables to run against the isolated OpenSSH test host.
+﹣ browser PTYs support unlock/trust, interactive input, resize, parallel identities, and close isolation (0.0561ms) # Set SSHDECK_TEST_SSH_* variables to run against the isolated OpenSSH test host.
+﹣ stopping the local service closes its active SSH shell WebSockets (0.0587ms) # Set SSHDECK_TEST_SSH_* variables to run against the isolated OpenSSH test host.
+﹣ CLI and browser report an unreachable SSH shell without leaving a local terminal open (0.0461ms) # Set SSHDECK_TEST_SSH_* variables to run against the isolated OpenSSH test host.
+﹣ WebSocket shell endpoint rejects untrusted or missing browser Origin (0.039ms) # Set SSHDECK_TEST_SSH_* variables to run against the isolated OpenSSH test host.
+✔ exec argument parser keeps the remote command as one shell string (1.1281ms)
+﹣ CLI executes remote command, streams output, and returns the remote exit code (0.086ms) # Set SSHDECK_TEST_SSH_* variables to run against the isolated OpenSSH test host.
+﹣ CLI Ctrl+C cancels only its foreground SSH command (0.08ms) # Set SSHDECK_TEST_SSH_* variables to run against the isolated OpenSSH test host.
+﹣ browser exec streams chunks, handles trust confirmation, and isolates concurrent aliases (0.0498ms) # Set SSHDECK_TEST_SSH_* variables to run against the isolated OpenSSH test host.
+﹣ browser cancellation aborts the local SSH channel without replaying the command (0.0538ms) # Set SSHDECK_TEST_SSH_* variables to run against the isolated OpenSSH test host.
+﹣ unreachable SSH endpoint fails clearly and the command is not run locally or retried (0.0423ms) # Set SSHDECK_TEST_SSH_* variables to run against the isolated OpenSSH test host.
+✔ service 透過目錄 junction 指向 standalone 資料時拒絕啟動且保留來源 (6.1408ms)
+✔ service 透過目錄 directory symlink 指向 standalone 資料時拒絕啟動且保留來源 (4.178ms)
+✔ service API 加密憑證、雙重認證、鎖定／重啟與損壞資料 fail-closed (1858.2201ms)
+✔ service start CLI 啟動健康端點，終止後不留背景程序 (372.725ms)
+✔ service mode 版本不相容或設定錯誤時不回退 standalone (119.8438ms)
+✔ 真實 SSHDeck service／雙 OpenSSH targets：信任、持久憑證、串流、並行、取消與斷線不重送 (28527.8919ms)
+✔ service terminal WebSocket 僅接受 UI token 並拒絕非法來源、未知主機與鎖定狀態 (122.5997ms)
+✔ 真實 Chromium 經 UI adapter/service WebSocket 操作隔離 OpenSSH PTY，並驗證取消、lock、shutdown 與 resize (16029.6131ms)
+✖ standalone Chromium terminal remains compatible with real OpenSSH PTY (11676.7191ms)
+✔ SSH host fingerprints use a stable SHA-256 SSH key digest (0.9637ms)
+✔ encrypted private key rejects an incorrect passphrase without exposing it (315.7247ms)
+✔ missing and malformed private key files fail clearly and update check status (10.4237ms)
+✔ standalone host JSON cannot inject the service-only in-memory private key (0.8428ms)
+✔ CLI secret prompt does not echo passphrase input (2.6413ms)
+✔ key creation UI uses a password dialog, exposes public guidance, and separates unlink from deletion (1129.0875ms)
+✔ managed key creation writes encrypted Ed25519 keys without overwriting and can be deleted independently (551.1749ms)
+✔ CLI manages generated keys, recognizes their paths after host updates, and unlinks external keys (2686.7367ms)
+﹣ generated key can be manually authorized and log in from CLI and UI without replacing existing authorized keys (0.0897ms) # Set SSHDECK_TEST_SSH_* and SSHDECK_TEST_SSH_FINGERPRINT to run manual public-key authorization against the isolated OpenSSH host.
+﹣ SSH trust requires explicit acceptance, shares trust by endpoint, and records login status (0.1196ms) # Set SSHDECK_TEST_SSH_HOST, SSHDECK_TEST_SSH_PORT, SSHDECK_TEST_SSH_KEY_A and SSHDECK_TEST_SSH_KEY_B to run against the isolated OpenSSH test host.
+﹣ CLI requires trust confirmation and then reuses endpoint trust (0.0426ms) # Set SSHDECK_TEST_SSH_HOST, SSHDECK_TEST_SSH_PORT, SSHDECK_TEST_SSH_KEY_A and SSHDECK_TEST_SSH_KEY_B to run against the isolated OpenSSH test host.
+﹣ browser SSH check gates on unlock and fingerprint confirmation, and lock clears service memory (0.0287ms) # Set SSHDECK_TEST_SSH_HOST, SSHDECK_TEST_SSH_PORT, SSHDECK_TEST_SSH_KEY_A and SSHDECK_TEST_SSH_KEY_B to run against the isolated OpenSSH test host.
+✔ 只對應目前連線設定顯示 SSH 檢查結果 (3.9081ms)
+﹣ 互動終端機一次只連線到選定主機，切換確認、分頁保留與重連正確 (0.4472ms) # 需設定 Playwright 模組路徑。
+✔ 掛載 basePath 隔離頁面、資產、API、WebSocket 與安全返回值 (254.8208ms)
+✔ basePath 設定拒絕相對路徑、traversal 與編碼分隔符 (0.8267ms)
+✔ 真實 Chromium：service UI 在 /sshdeck/ 匯入金鑰、核對指紋並管理主機 (18780.5033ms)
+sshdeck UI：http://127.0.0.1:53713/sshdeck/
+✔ service 模式的 ui CLI 可啟動掛載管理 UI (40.3615ms)
+✔ service UI adapter 以 server-side token 消費 API 並安全處理 CRUD、金鑰與秘密 (1480.6198ms)
+﹣ SSH 狀態檢查共用請求並保留工作區互動狀態 (0.5862ms) # 需設定 Playwright 模組路徑。
+﹣ 狀態檢查忽略舊設定回應，解鎖取消及指紋拒絕不誤報紅綠燈 (0.0969ms) # 需設定 Playwright 模組路徑。
+﹣ 輪詢間隔為 30 秒，頁面隱藏時暫停且返回時立即檢查 (0.0732ms) # 需設定 Playwright 模組路徑。
+✔ 建立指南資源使用版本網址並停用瀏覽器快取 (6059.7964ms)
+✔ 工作區保留選取與輸入，分頁不重建終端，窄螢幕可用鍵盤導覽 (3277.5446ms)
+ℹ tests 62
+ℹ suites 0
+ℹ pass 37
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 24
+ℹ todo 0
+ℹ duration_ms 97985.4432
+
+✖ failing tests:
+
+test at test\service-terminal.test.js:710:1
+✖ standalone Chromium terminal remains compatible with real OpenSSH PTY (11676.7191ms)
+  AssertionError [ERR_ASSERTION]: standalone 真實 PTY 必須回報 wide terminal 尺寸：["已連線。輸入 exit 或關閉此終端機結束工作階段。","Last login: Fri Nov 20 01:52:37 2026 from 127.0.0.1",":%s\\n' \"$value\"ntf 'STANDALONE_READY\\n'; read -r value; printf 'STANDALONE_INPUT:","STANDALONE_READY","standalone-browser-input","STANDALONE_INPUT:standalone-browser-input","root@MSI:~# printf 'STANDALONE_SIZE_WIDE:%s\\n' \"$(stty size)\"; printf 'STANDALONE_SIZE_WIDE_READY\\ ","","","","","","","","","","","","","","","","",""]
+      at TestContext.<anonymous> (C:\Users\andt3\Desktop\agent-system\.worktree\sshdeck-system-integration-sshdeck-tickets-07\test\service-terminal.test.js:813:12)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

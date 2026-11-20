@@ -1,0 +1,22 @@
+✔ service terminal WebSocket 僅接受 UI token 並拒絕非法來源、未知主機與鎖定狀態 (96.2785ms)
+✖ 真實 Chromium 經 UI adapter/service WebSocket 操作隔離 OpenSSH PTY，並驗證取消、lock、shutdown 與 resize (24910.3785ms)
+✔ standalone Chromium terminal remains compatible with real OpenSSH PTY (10617.6664ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 2
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 35966.825
+
+✖ failing tests:
+
+test at test\service-terminal.test.js:354:1
+✖ 真實 Chromium 經 UI adapter/service WebSocket 操作隔離 OpenSSH PTY，並驗證取消、lock、shutdown 與 resize (24910.3785ms)
+  page.waitForFunction: Timeout 10000ms exceeded.
+      at waitForTerminalText (C:\Users\andt3\desktop\agent-system\.worktree\sshdeck-system-integration-sshdeck-tickets-07\test\service-terminal.test.js:127:14)
+      at TestContext.<anonymous> (C:\Users\andt3\desktop\agent-system\.worktree\sshdeck-system-integration-sshdeck-tickets-07\test\service-terminal.test.js:652:11) {
+    name: 'TimeoutError',
+    log: []
+  }

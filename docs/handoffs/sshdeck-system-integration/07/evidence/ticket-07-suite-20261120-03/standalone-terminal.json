@@ -1,0 +1,21 @@
+{
+  "runId": "a4b4beb6-d361-4071-86e1-a547164378b8",
+  "processId": 25668,
+  "nodeVersion": "v24.20.0",
+  "browserVersion": "156.0.8078.4",
+  "uiPort": 18792,
+  "fixturePorts": [
+    2227,
+    2228
+  ],
+  "status": "failed",
+  "stage": "verify-standalone-input-output-and-resize",
+  "hostFingerprints": {
+    "a": "SHA256:14HNYQjsv4755lVWpA9Gae4ZOIH0oTeb+F9OTIG3DVg",
+    "b": "SHA256:U8OVy4ZGtT/lnLyVW9312nNDNCC92CYzFzKdgPww0+w"
+  },
+  "failure": "standalone 真實 PTY 必須回報 wide terminal 尺寸：[\"已連線。輸入 exit 或關閉此終端機結束工作階段。\",\"Last login: Fri Nov 20 01:52:37 2026 from 127.0.0.1\",\":%s\\\\n' \\\"$value\\\"ntf 'STANDALONE_READY\\\\n'; read -r value; printf 'STANDALONE_INPUT:\",\"STANDALONE_READY\",\"standalone-browser-input\",\"STANDALONE_INPUT:standalone-browser-input\",\"root@MSI:~# printf 'STANDALONE_SIZE_WIDE:%s\\\\n' \\\"$(stty size)\\\"; printf 'STANDALONE_SIZE_WIDE_READY\\\\ \",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\"]",
+  "uiCleanup": "passed",
+  "fixtureCleanup": "passed",
+  "shellUpgradeCount": 1
+}
