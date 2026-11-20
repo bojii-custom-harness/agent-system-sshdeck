@@ -3,9 +3,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const https = require('node:https');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
+const tls = require('node:tls');
 const { randomBytes, randomUUID } = require('node:crypto');
 const { chromium } = require('playwright');
 const { utils } = require('ssh2');
@@ -13,6 +15,7 @@ const WebSocket = require('ws');
 const { startUi } = require('../bin/sshdeck.js');
 const { startService } = require('../lib/service-server');
 const { createOpenSshServiceFixture } = require('./helpers/openssh-service-fixture');
+const { createHttpsTestCertificate } = require('./helpers/https-test-certificate');
 const { startServiceProcess } = require('./helpers/service-process');
 const { createServiceEnv } = require('./helpers/service-test-utils');
 
@@ -827,6 +830,375 @@ test('ticket07-review-default-http-port-allows-valid-terminal-origin', {
   assert.equal(cleanup.activeTerminals, 0);
   assert.equal(cleanup.fixture, 'passed');
   assert.equal(cleanup.directory, 'passed');
+});
+
+test('ticket07-review-https-ingress-service-origin-allows-proxied-port', {
+  timeout: 20_000,
+}, async () => {
+  const runId = randomUUID();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), `sshdeck-ticket07-https-origin-${runId}-`));
+  const env = createServiceEnv(path.join(directory, 'service-home'));
+  const evidenceFile = process.env.SSHDECK_TEST_SERVICE_TERMINAL_HTTPS_ORIGIN_EVIDENCE;
+  const trustedOrigin = 'https://sshdeck-service.example';
+  env.SSHDECK_SERVICE_TERMINAL_ORIGIN = trustedOrigin;
+  const evidence = {
+    runId,
+    processId: process.pid,
+    nodeVersion: process.version,
+    trustedOrigin,
+    invalidConfiguredOrigins: [],
+    status: 'running',
+    stage: 'start-service-on-private-http-listener',
+  };
+  let service;
+  let failure;
+  const sockets = [];
+  let cleanup = 'not-started';
+  writeOptionalEvidence(evidenceFile, evidence);
+  try {
+    for (const [name, value] of [
+      ['credentials', 'https://user@sshdeck-service.example'],
+      ['path', 'https://sshdeck-service.example/path'],
+      ['query', 'https://sshdeck-service.example?enabled=1'],
+      ['non-http-scheme', 'ftp://sshdeck-service.example'],
+      ['non-canonical-origin', 'https://sshdeck-service.example/'],
+    ]) {
+      env.SSHDECK_SERVICE_TERMINAL_ORIGIN = value;
+      await assert.rejects(
+        startService({ env, host: '127.0.0.1', port: 0 }),
+        (error) => error.code === 'SERVICE_TERMINAL_ORIGIN_INVALID',
+        `${name} must not be accepted as a service terminal origin`,
+      );
+      evidence.invalidConfiguredOrigins.push(name);
+    }
+    env.SSHDECK_SERVICE_TERMINAL_ORIGIN = trustedOrigin;
+    evidence.stage = 'invalid-service-terminal-origins-rejected';
+    writeOptionalEvidence(evidenceFile, evidence, { overwrite: true });
+
+    evidence.stage = 'start-service-on-private-http-listener';
+    service = await startService({ env, host: '127.0.0.1', port: 0 });
+    evidence.listenerPort = service.address().port;
+    assert.notEqual(service.address().port, 443, '測試 service listener 必須與 HTTPS ingress default port 不同');
+
+    evidence.stage = 'allow-trusted-https-origin-through-service-terminal-gate';
+    const trusted = await openSocket(
+      socketUrl(service.url, terminalPath('not-configured')),
+      {
+        origin: trustedOrigin,
+        headers: {
+          authorization: `Bearer ${env.SSHDECK_UI_TOKEN}`,
+          host: 'sshdeck-service.example',
+        },
+      },
+    );
+    sockets.push(trusted.socket);
+    evidence.trustedStatus = trusted.status;
+    assert.equal(trusted.status, 404, `允許的外部 service origin 應通過來源 gate，再回報未知 alias：${trusted.body || ''}`);
+    assert.equal(JSON.parse(trusted.body).code, 'HOST_NOT_FOUND');
+
+    const mismatches = [
+      {
+        name: 'untrusted origin',
+        origin: 'https://attacker.example',
+        host: 'sshdeck-service.example',
+      },
+      {
+        name: 'untrusted host',
+        origin: trustedOrigin,
+        host: 'attacker.example',
+      },
+      {
+        name: 'untrusted scheme',
+        origin: 'http://sshdeck-service.example',
+        host: 'sshdeck-service.example',
+      },
+      {
+        name: 'untrusted port',
+        origin: 'https://sshdeck-service.example:444',
+        host: 'sshdeck-service.example:444',
+      },
+    ];
+    evidence.stage = 'reject-untrusted-service-authorities';
+    evidence.rejected = [];
+    for (const mismatch of mismatches) {
+      const rejected = await openSocket(
+        socketUrl(service.url, terminalPath('not-configured')),
+        {
+          origin: mismatch.origin,
+          headers: {
+            authorization: `Bearer ${env.SSHDECK_UI_TOKEN}`,
+            host: mismatch.host,
+          },
+        },
+      );
+      sockets.push(rejected.socket);
+      evidence.rejected.push({ name: mismatch.name, status: rejected.status });
+      assert.equal(rejected.status, 403, `${mismatch.name} 必須維持拒絕`);
+    }
+    evidence.status = 'passed';
+    evidence.stage = 'trusted-origin-allowed-and-authority-mismatches-rejected';
+  } catch (error) {
+    failure = error;
+    evidence.status = 'failed';
+    evidence.failure = { name: error.name, message: error.message };
+  } finally {
+    for (const socket of sockets) {
+      if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    }
+    if (service) {
+      try {
+        await service.closeAsync();
+        evidence.activeTerminalsAfterCleanup = service.activeTerminalCount;
+        cleanup = service.activeTerminalCount === 0 ? 'passed' : 'failed';
+      } catch {
+        cleanup = 'failed';
+      }
+    }
+    fs.rmSync(directory, { recursive: true, force: true });
+    evidence.cleanup = {
+      service: cleanup,
+      directory: fs.existsSync(directory) ? 'failed' : 'passed',
+    };
+    writeOptionalEvidence(evidenceFile, evidence, { overwrite: true });
+  }
+  if (failure) throw failure;
+  assert.equal(cleanup, 'passed');
+  assert.equal(evidence.cleanup.directory, 'passed');
+});
+
+test('ticket07-review-https-ingress-proxies-adapter-terminal-websocket-to-private-service-port', {
+  timeout: 30_000,
+}, async () => {
+  const runId = randomUUID();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), `sshdeck-ticket07-https-bridge-${runId}-`));
+  const env = createServiceEnv(path.join(directory, 'service-home'));
+  const evidenceFile = process.env.SSHDECK_TEST_SERVICE_TERMINAL_HTTPS_BRIDGE_EVIDENCE;
+  const keyPair = utils.generateKeyPairSync('ed25519', { comment: `sshdeck-ticket07-https-${runId}` });
+  const alias = `ticket07-https-${runId.slice(0, 8)}`;
+  const certificate = createHttpsTestCertificate();
+  const originalTlsConnect = tls.connect;
+  let patchedTlsConnect = false;
+  const observations = {
+    runId,
+    processId: process.pid,
+    nodeVersion: process.version,
+    status: 'running',
+    stage: 'start-https-ingress',
+  };
+  const proxyConnections = new Set();
+  const ingressSockets = new Set();
+  const sshTargetSockets = new Set();
+  let ingress;
+  let service;
+  let sshTarget;
+  let ui;
+  let adapterSocket;
+  let failure;
+  let cleanup = {
+    ui: 'not-started',
+    ingress: 'not-started',
+    service: 'not-started',
+    sshTarget: 'not-started',
+    directory: 'not-started',
+  };
+  writeOptionalEvidence(evidenceFile, observations);
+  try {
+    ingress = https.createServer({
+      key: certificate.privateKeyPem,
+      cert: certificate.certificatePem,
+    }, (_request, response) => {
+      response.writeHead(404);
+      response.end();
+    });
+    ingress.on('connection', (socket) => {
+      ingressSockets.add(socket);
+      socket.once('close', () => ingressSockets.delete(socket));
+    });
+    let upstreamServicePort;
+    ingress.on('upgrade', (request, clientSocket, head) => {
+      const upstream = net.connect({ host: '127.0.0.1', port: upstreamServicePort });
+      proxyConnections.add(upstream);
+      const proxyObservation = {
+        host: request.headers.host,
+        origin: request.headers.origin,
+        path: request.url,
+        tlsTerminated: Boolean(clientSocket.encrypted),
+        authorizationPresent: typeof request.headers.authorization === 'string',
+        authorizationIsBasic: /^Basic\s/i.test(request.headers.authorization || ''),
+      };
+      observations.ingressRequest = proxyObservation;
+      writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+      let responseStatus;
+      upstream.on('data', (chunk) => {
+        if (responseStatus) return;
+        const headerEnd = chunk.indexOf('\r\n');
+        if (headerEnd >= 0) responseStatus = chunk.subarray(0, headerEnd).toString('ascii');
+        if (responseStatus) {
+          observations.serviceHandshake = responseStatus;
+          writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+        }
+      });
+      upstream.once('connect', () => {
+        const headers = [];
+        for (let index = 0; index < request.rawHeaders.length; index += 2) {
+          headers.push(`${request.rawHeaders[index]}: ${request.rawHeaders[index + 1]}`);
+        }
+        upstream.write(`${request.method} ${request.url} HTTP/${request.httpVersion}\r\n${headers.join('\r\n')}\r\n\r\n`);
+        if (head.length) upstream.write(head);
+        upstream.pipe(clientSocket);
+        clientSocket.pipe(upstream);
+      });
+      upstream.once('error', () => clientSocket.destroy());
+      upstream.once('close', () => proxyConnections.delete(upstream));
+      clientSocket.once('close', () => {
+        if (!upstream.destroyed) upstream.destroy();
+      });
+    });
+    await new Promise((resolve, reject) => {
+      ingress.once('error', reject);
+      ingress.listen(0, '127.0.0.1', resolve);
+    });
+    const ingressPort = ingress.address().port;
+    tls.connect = (options, ...args) => {
+      if (Number(options.port) === ingressPort && options.host === '127.0.0.1') {
+        observations.tlsConnectionAttempt = { host: options.host, port: Number(options.port) };
+        const socket = originalTlsConnect({
+          ...options,
+          ca: [...tls.rootCertificates, certificate.certificatePem],
+        }, ...args);
+        socket.once('secureConnect', () => {
+          observations.tlsConnected = true;
+          writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+        });
+        socket.once('error', (error) => {
+          observations.tlsClientError = { code: error.code, message: error.message };
+          writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+        });
+        return socket;
+      }
+      return originalTlsConnect(options, ...args);
+    };
+    patchedTlsConnect = true;
+    const ingressOrigin = `https://127.0.0.1:${ingressPort}`;
+    observations.ingressOrigin = ingressOrigin;
+    writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+    env.SSHDECK_SERVICE_TERMINAL_ORIGIN = ingressOrigin;
+    observations.stage = 'start-private-service-and-ssh-target';
+    service = await startService({ env, host: '127.0.0.1', port: 0 });
+    upstreamServicePort = service.address().port;
+    observations.serviceListenerPort = upstreamServicePort;
+    assert.notEqual(upstreamServicePort, ingress.address().port, 'service listener 必須與 HTTPS ingress 使用不同 port');
+    writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+    sshTarget = net.createServer((socket) => {
+      sshTargetSockets.add(socket);
+      socket.once('close', () => sshTargetSockets.delete(socket));
+      socket.end('not an SSH server\r\n');
+    });
+    await new Promise((resolve, reject) => {
+      sshTarget.once('error', reject);
+      sshTarget.listen(0, '127.0.0.1', resolve);
+    });
+    await addManagedTerminalHost(service, env, alias, sshTarget.address().port, keyPair.private);
+
+    observations.stage = 'start-service-ui-adapter';
+    writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+    ui = await startUi({
+      mode: 'service',
+      env: {
+        SSHDECK_MODE: 'service',
+        SSHDECK_SERVICE_URL: ingressOrigin,
+        SSHDECK_SERVICE_TOKEN: env.SSHDECK_SERVICE_TOKEN,
+        SSHDECK_UI_TOKEN: env.SSHDECK_UI_TOKEN,
+      },
+      port: 0,
+      openBrowser: async () => {},
+      log: () => {},
+    });
+    writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+    adapterSocket = await openSocket(socketUrl(ui.url, `api/shell?alias=${encodeURIComponent(alias)}`), {
+      origin: new URL(ui.url).origin,
+    });
+    observations.adapterStatus = adapterSocket.status;
+    writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+    assert.equal(adapterSocket.status, 101, 'UI adapter 必須接受合法本機瀏覽器來源');
+    const terminalFailure = nextControl(adapterSocket.socket, (message) => message.type === 'error');
+    const failureMessage = await terminalFailure;
+    observations.terminalResult = {
+      type: failureMessage.type,
+      code: failureMessage.code,
+    };
+    writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+    assert.equal(failureMessage.type, 'error', '真實 service terminal WebSocket 應在 SSH target 回報連線錯誤');
+    assert.ok(observations.ingressRequest, `adapter WS 必須抵達 TLS ingress：${JSON.stringify(observations.tlsClientError || {})}`);
+    assert.equal(observations.ingressRequest.tlsTerminated, true);
+    assert.equal(observations.ingressRequest.origin, ingressOrigin);
+    assert.equal(observations.ingressRequest.host, new URL(ingressOrigin).host);
+    assert.equal(observations.ingressRequest.authorizationPresent, true);
+    assert.equal(observations.ingressRequest.authorizationIsBasic, false);
+    assert.equal(observations.serviceHandshake, 'HTTP/1.1 101 Switching Protocols');
+    observations.status = 'passed';
+    observations.stage = 'adapter-service-terminal-websocket-upgraded-through-https-ingress';
+    writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+    if (adapterSocket.socket.readyState !== WebSocket.CLOSED) adapterSocket.socket.terminate();
+  } catch (error) {
+    failure = error;
+    observations.status = 'failed';
+    observations.failure = { name: error.name, message: error.message };
+  } finally {
+    if (adapterSocket?.socket && adapterSocket.socket.readyState !== WebSocket.CLOSED) {
+      adapterSocket.socket.terminate();
+    }
+    for (const socket of ingressSockets) socket.destroy();
+    for (const socket of proxyConnections) socket.destroy();
+    observations.cleanupStage = 'close-ui-adapter';
+    writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+    if (ui) {
+      try {
+        await new Promise((resolve) => ui.close(resolve));
+        cleanup.ui = 'passed';
+      } catch { cleanup.ui = 'failed'; }
+    }
+    observations.cleanupStage = 'close-https-ingress';
+    writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+    if (ingress) {
+      try {
+        await new Promise((resolve, reject) => ingress.close((error) => error ? reject(error) : resolve()));
+        cleanup.ingress = proxyConnections.size === 0 ? 'passed' : 'failed';
+      } catch { cleanup.ingress = 'failed'; }
+    }
+    observations.cleanupStage = 'close-service';
+    writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+    if (service) {
+      try {
+        await service.closeAsync();
+        observations.activeTerminalsAfterCleanup = service.activeTerminalCount;
+        cleanup.service = service.activeTerminalCount === 0 ? 'passed' : 'failed';
+      } catch { cleanup.service = 'failed'; }
+    }
+    observations.cleanupStage = 'close-ssh-target';
+    writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+    for (const socket of sshTargetSockets) socket.destroy();
+    if (sshTarget) {
+      try {
+        await new Promise((resolve, reject) => sshTarget.close((error) => error ? reject(error) : resolve()));
+        cleanup.sshTarget = 'passed';
+      } catch { cleanup.sshTarget = 'failed'; }
+    }
+    if (patchedTlsConnect) tls.connect = originalTlsConnect;
+    fs.rmSync(directory, { recursive: true, force: true });
+    cleanup.directory = fs.existsSync(directory) ? 'failed' : 'passed';
+    observations.cleanup = cleanup;
+    delete observations.cleanupStage;
+    writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
+  }
+  if (failure) throw failure;
+  assert.deepEqual(cleanup, {
+    ui: 'passed',
+    ingress: 'passed',
+    service: 'passed',
+    sshTarget: 'passed',
+    directory: 'passed',
+  });
 });
 
 test('真實 Chromium 經 UI adapter/service WebSocket 操作隔離 OpenSSH PTY，並驗證取消、lock、shutdown 與 resize', {
