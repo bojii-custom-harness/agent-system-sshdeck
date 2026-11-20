@@ -13,6 +13,7 @@ const WebSocket = require('ws');
 const { startUi } = require('../bin/sshdeck.js');
 const { startService } = require('../lib/service-server');
 const { createOpenSshServiceFixture } = require('./helpers/openssh-service-fixture');
+const { startServiceProcess } = require('./helpers/service-process');
 const { createServiceEnv } = require('./helpers/service-test-utils');
 
 const enabled = process.env.SSHDECK_TEST_SERVICE_SSH === '1';
@@ -101,6 +102,178 @@ function nextControl(socket, predicate, timeoutMs = 5000) {
       }, timeoutMs),
     };
     socket.controlWaiters.push(waiter);
+  });
+}
+
+async function addManagedTerminalHost(service, env, alias, port, privateKey) {
+  const headers = { authorization: `Bearer ${env.SSHDECK_UI_TOKEN}` };
+  const added = await requestJson(service.url, '/v1/hosts', {
+    method: 'POST',
+    headers,
+    body: { alias, hostname: '127.0.0.1', port, username: 'root' },
+  });
+  assert.equal(added.response.status, 201, 'service 受管主機建立失敗');
+  const imported = await requestJson(service.url, `/v1/hosts/${encodeURIComponent(alias)}/key/import`, {
+    method: 'POST',
+    headers,
+    body: { privateKey, passphrase: '' },
+  });
+  assert.equal(imported.response.status, 201, 'service 管理金鑰匯入失敗');
+}
+
+async function openTrustedTerminal(service, env, alias, fingerprint) {
+  const opened = await openSocket(socketUrl(service.url, terminalPath(alias)), {
+    origin: new URL(service.url).origin,
+    headers: { authorization: `Bearer ${env.SSHDECK_UI_TOKEN}` },
+  });
+  assert.equal(opened.status, 101, `合法 service terminal WS 必須 upgrade：${opened.body || ''}`);
+  const first = await nextControl(
+    opened.socket,
+    (message) => ['trust-required', 'host-key-changed', 'started', 'error'].includes(message.type),
+  );
+  assert.notEqual(first.type, 'error', `真實 SSH PTY 啟動失敗：${first.code}`);
+  if (first.type === 'trust-required' || first.type === 'host-key-changed') {
+    assert.equal(first.fingerprint, fingerprint, 'trust challenge 必須提供 fixture 的實際指紋');
+    const started = nextControl(opened.socket, (message) => message.type === 'started');
+    opened.socket.send(JSON.stringify({ type: 'trust', fingerprint }));
+    const result = await started;
+    assert.equal(result.alias, alias);
+  } else {
+    assert.equal(first.type, 'started');
+    assert.equal(first.alias, alias);
+  }
+  return opened.socket;
+}
+
+async function createTerminalRegressionContext({
+  servicePort = 0,
+  fixtureEvidenceFile,
+} = {}) {
+  const runId = randomUUID();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), `sshdeck-ticket07-review-${runId}-`));
+  const keyPair = utils.generateKeyPairSync('ed25519', { comment: `sshdeck-ticket07-review-${runId}` });
+  const env = createServiceEnv(path.join(directory, 'service-home'));
+  const context = {
+    runId,
+    directory,
+    keyPair,
+    env,
+    fixture: null,
+    service: null,
+    aliasA: `ticket07-review-a-${runId.slice(0, 8)}`,
+    aliasB: `ticket07-review-b-${runId.slice(0, 8)}`,
+  };
+  context.cleanup = async () => {
+    const result = {
+      service: context.service ? 'pending' : 'not-started',
+      fixture: context.fixture ? 'pending' : 'not-started',
+      activeTerminals: null,
+      directory: 'pending',
+    };
+    if (context.service) {
+      try {
+        const shutdown = await context.service.closeAsync();
+        result.activeTerminals = shutdown.activeTerminalCount;
+        result.serviceExitCode = shutdown.exitCode;
+        result.serviceError = shutdown.stderr?.match(/TypeError: [^\r\n]+/)?.[0];
+        result.service = shutdown.exitCode === 0 && result.activeTerminals === 0 ? 'passed' : 'failed';
+      } catch {
+        result.service = 'failed';
+      }
+    }
+    if (context.fixture) {
+      try {
+        await context.fixture.cleanup();
+        result.fixture = 'passed';
+      } catch {
+        result.fixture = 'failed';
+      }
+    }
+    try {
+      fs.rmSync(context.directory, { recursive: true, force: true });
+      result.directory = fs.existsSync(context.directory) ? 'failed' : 'passed';
+    } catch {
+      result.directory = 'failed';
+    }
+    return result;
+  };
+
+  try {
+    context.fixture = await createOpenSshServiceFixture({
+      authorizedPublicKey: keyPair.public,
+      ...(fixtureEvidenceFile ? { evidenceFile: fixtureEvidenceFile } : {}),
+      enablePty: true,
+    });
+    context.service = await startServiceProcess({ env, host: '127.0.0.1', port: servicePort });
+    await addManagedTerminalHost(
+      context.service,
+      env,
+      context.aliasA,
+      context.fixture.ports[0],
+      keyPair.private,
+    );
+    await addManagedTerminalHost(
+      context.service,
+      env,
+      context.aliasB,
+      context.fixture.ports[1],
+      keyPair.private,
+    );
+    return context;
+  } catch (error) {
+    await context.cleanup();
+    throw error;
+  }
+}
+
+async function waitForActiveTerminalCount(service, expected, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  let count = await service.getActiveTerminalCount();
+  while (count !== expected && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    count = await service.getActiveTerminalCount();
+  }
+  assert.equal(count, expected, `service active terminal count 應為 ${expected}`);
+}
+
+function waitForTerminalSocketClose(socket, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off('close', onClose);
+      reject(new Error('等待 terminal WebSocket close 逾時'));
+    }, timeoutMs);
+    const onClose = (code, reason) => {
+      clearTimeout(timer);
+      resolve({ code, reason: reason.toString() });
+    };
+    socket.once('close', onClose);
+  });
+}
+
+function waitForTerminalBinaryText(socket, marker, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    let output = '';
+    const onMessage = (data, isBinary) => {
+      if (!isBinary) return;
+      output += data.toString();
+      if (!output.includes(marker)) return;
+      clearTimeout(timer);
+      socket.off('message', onMessage);
+      resolve(output);
+    };
+    const timer = setTimeout(() => {
+      socket.off('message', onMessage);
+      reject(new Error(`等待 survivor PTY 輸出逾時：${marker}`));
+    }, timeoutMs);
+    socket.on('message', onMessage);
+  });
+}
+
+function writeOptionalEvidence(file, evidence, { overwrite = false } = {}) {
+  if (!file) return;
+  fs.writeFileSync(file, `${JSON.stringify(evidence, null, 2)}\n`, {
+    flag: overwrite ? 'w' : 'wx',
+    encoding: 'utf8',
   });
 }
 
@@ -349,6 +522,311 @@ test('service terminal WebSocket 僅接受 UI token 並拒絕非法來源、未�
     if (service) await service.closeAsync();
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('ticket07-review-control-frame-structure-closes-only-its-own-pty', {
+  skip: enabled ? false : '設定 SSHDECK_TEST_SERVICE_SSH=1 才會啟動本任務隔離 OpenSSH fixtures。',
+  timeout: 90_000,
+}, async () => {
+  const runId = randomUUID();
+  const evidenceFile = process.env.SSHDECK_TEST_SERVICE_TERMINAL_REVIEW_STRUCTURE_EVIDENCE;
+  const evidence = {
+    runId,
+    processId: process.pid,
+    nodeVersion: process.version,
+    status: 'running',
+    stage: 'create-isolated-service-and-open-ssh-fixture',
+    frames: ['null', 'true', '[]', '{}'],
+  };
+  let context;
+  let survivor;
+  const sockets = [];
+  let failure;
+  let cleanup = {
+    service: 'not-started',
+    fixture: 'not-started',
+    activeTerminals: null,
+    directory: 'not-created',
+  };
+  writeOptionalEvidence(evidenceFile, evidence);
+  try {
+    context = await createTerminalRegressionContext({
+      fixtureEvidenceFile: process.env.SSHDECK_TEST_SERVICE_TERMINAL_REVIEW_STRUCTURE_FIXTURE_EVIDENCE,
+    });
+    evidence.servicePort = context.service.address().port;
+    evidence.fixturePorts = context.fixture.ports;
+
+    evidence.stage = 'open-survivor-pty';
+    survivor = await openTrustedTerminal(
+      context.service,
+      context.env,
+      context.aliasB,
+      context.fixture.fingerprints.b,
+    );
+    sockets.push(survivor);
+    await waitForActiveTerminalCount(context.service, 1);
+
+    for (const frame of evidence.frames) {
+      evidence.stage = `reject-control-frame-${frame}`;
+      const target = await openTrustedTerminal(
+        context.service,
+        context.env,
+        context.aliasA,
+        context.fixture.fingerprints.a,
+      );
+      sockets.push(target);
+      await waitForActiveTerminalCount(context.service, 2);
+
+      const errorPromise = nextControl(
+        target,
+        (message) => message.type === 'error',
+        2000,
+      ).then((message) => ({ kind: 'error', message }), (error) => ({ kind: 'timeout', error }));
+      const closedPromise = waitForTerminalSocketClose(target, 5000)
+        .then((closed) => ({ kind: 'closed', closed }), (error) => ({ kind: 'timeout', error }));
+      target.send(frame);
+      const outcome = await errorPromise;
+      const closed = await closedPromise;
+      evidence.lastFrameOutcome = {
+        kind: outcome.kind,
+        ...(outcome.message ? { code: outcome.message.code } : {}),
+        ...(outcome.error ? { errorName: outcome.error.name } : {}),
+      };
+      evidence.lastFrameClose = {
+        kind: closed.kind,
+        ...(closed.closed ? { code: closed.closed.code } : {}),
+      };
+      writeOptionalEvidence(evidenceFile, evidence, { overwrite: true });
+      assert.equal(outcome.kind, 'error', `${frame} 必須安全拒絕並回報 INVALID_TERMINAL_FRAME`);
+      assert.equal(outcome.message.code, 'INVALID_TERMINAL_FRAME');
+      assert.equal(closed.kind, 'closed', `${frame} 必須關閉該 terminal session`);
+      assert.equal(closed.closed.code, 1008);
+      await waitForActiveTerminalCount(context.service, 1);
+      assert.equal(survivor.readyState, WebSocket.OPEN, '拒絕單一 frame 不得關閉其他 PTY');
+    }
+
+    const marker = `T07_SURVIVOR_AFTER_BAD_FRAME_${runId.slice(0, 8)}`;
+    const output = waitForTerminalBinaryText(survivor, marker);
+    survivor.send(Buffer.from(`printf '${marker}\\n'\\n`), { binary: true });
+    assert.ok((await output).includes(marker), '其他真實 PTY 必須仍可收發資料');
+    assert.equal((await fetch(`${context.service.url}/v1/health`)).status, 200, 'service 不得因非法 frame 崩潰');
+    evidence.status = 'passed';
+    evidence.stage = 'verified-session-isolation-and-service-health';
+  } catch (error) {
+    failure = error;
+    evidence.status = 'failed';
+    evidence.failure = { name: error.name, message: error.message };
+  } finally {
+    for (const socket of sockets) {
+      if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    }
+    if (context) cleanup = await context.cleanup();
+    evidence.cleanup = cleanup;
+    writeOptionalEvidence(evidenceFile, evidence, { overwrite: true });
+  }
+  if (failure) throw failure;
+  assert.equal(cleanup.service, 'passed');
+  assert.equal(cleanup.activeTerminals, 0);
+  assert.equal(cleanup.fixture, 'passed');
+  assert.equal(cleanup.directory, 'passed');
+});
+
+test('ticket07-review-resize-fields-are-bounded-and-session-isolated', {
+  skip: enabled ? false : '設定 SSHDECK_TEST_SERVICE_SSH=1 才會啟動本任務隔離 OpenSSH fixtures。',
+  timeout: 90_000,
+}, async () => {
+  const runId = randomUUID();
+  const evidenceFile = process.env.SSHDECK_TEST_SERVICE_TERMINAL_REVIEW_RESIZE_EVIDENCE;
+  const invalidFrames = [
+    { name: 'cols-below-minimum', message: { type: 'resize', cols: 0, rows: 24 } },
+    { name: 'cols-above-maximum', message: { type: 'resize', cols: 1001, rows: 24 } },
+    { name: 'rows-below-minimum', message: { type: 'resize', cols: 80, rows: 0 } },
+    { name: 'rows-above-maximum', message: { type: 'resize', cols: 80, rows: 1001 } },
+    { name: 'fractional-cols', message: { type: 'resize', cols: 80.5, rows: 24 } },
+    { name: 'string-rows', message: { type: 'resize', cols: 80, rows: '24' } },
+  ];
+  const evidence = {
+    runId,
+    processId: process.pid,
+    nodeVersion: process.version,
+    status: 'running',
+    stage: 'create-isolated-service-and-open-ssh-fixture',
+    invalidFrames,
+  };
+  let context;
+  let survivor;
+  const sockets = [];
+  let failure;
+  let cleanup = {
+    service: 'not-started',
+    fixture: 'not-started',
+    activeTerminals: null,
+    directory: 'not-created',
+  };
+  writeOptionalEvidence(evidenceFile, evidence);
+  try {
+    context = await createTerminalRegressionContext({
+      fixtureEvidenceFile: process.env.SSHDECK_TEST_SERVICE_TERMINAL_REVIEW_RESIZE_FIXTURE_EVIDENCE,
+    });
+    evidence.servicePort = context.service.address().port;
+    evidence.fixturePorts = context.fixture.ports;
+
+    evidence.stage = 'open-survivor-pty';
+    survivor = await openTrustedTerminal(
+      context.service,
+      context.env,
+      context.aliasB,
+      context.fixture.fingerprints.b,
+    );
+    sockets.push(survivor);
+    await waitForActiveTerminalCount(context.service, 1);
+    survivor.send(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }));
+
+    for (const { name, message } of invalidFrames) {
+      evidence.stage = `reject-${name}`;
+      const target = await openTrustedTerminal(
+        context.service,
+        context.env,
+        context.aliasA,
+        context.fixture.fingerprints.a,
+      );
+      sockets.push(target);
+      await waitForActiveTerminalCount(context.service, 2);
+
+      const errorPromise = nextControl(
+        target,
+        (frame) => frame.type === 'error',
+        1500,
+      ).then((frame) => ({ kind: 'error', frame }), (error) => ({ kind: 'timeout', error }));
+      const closedPromise = waitForTerminalSocketClose(target, 5000)
+        .then((closed) => ({ kind: 'closed', closed }), (error) => ({ kind: 'timeout', error }));
+      target.send(JSON.stringify(message));
+      const outcome = await errorPromise;
+      const closed = await closedPromise;
+      assert.equal(outcome.kind, 'error', `${name} 必須安全拒絕並回報 INVALID_TERMINAL_FRAME`);
+      assert.equal(outcome.frame.code, 'INVALID_TERMINAL_FRAME');
+      assert.equal(closed.kind, 'closed', `${name} 必須關閉該 terminal session`);
+      assert.equal(closed.closed.code, 1008);
+      await waitForActiveTerminalCount(context.service, 1);
+      assert.equal(survivor.readyState, WebSocket.OPEN, `${name} 不得關閉其他 PTY`);
+      evidence.completedInvalidFrames = [...(evidence.completedInvalidFrames || []), name];
+    }
+
+    const marker = `T07_SURVIVOR_AFTER_BAD_RESIZE_${runId.slice(0, 8)}`;
+    const output = waitForTerminalBinaryText(survivor, marker);
+    survivor.send(Buffer.from(`printf '${marker}\\n'\\n`), { binary: true });
+    assert.ok((await output).includes(marker), '其他真實 PTY 必須仍可收發資料');
+    assert.equal((await fetch(`${context.service.url}/v1/health`)).status, 200, 'service 不得因非法 resize 崩潰');
+    evidence.status = 'passed';
+    evidence.stage = 'verified-resize-bounds-session-isolation-and-health';
+  } catch (error) {
+    failure = error;
+    evidence.status = 'failed';
+    evidence.failure = { name: error.name, message: error.message };
+  } finally {
+    for (const socket of sockets) {
+      if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    }
+    if (context) cleanup = await context.cleanup();
+    evidence.cleanup = cleanup;
+    writeOptionalEvidence(evidenceFile, evidence, { overwrite: true });
+  }
+  if (failure) throw failure;
+  assert.equal(cleanup.service, 'passed');
+  assert.equal(cleanup.activeTerminals, 0);
+  assert.equal(cleanup.fixture, 'passed');
+  assert.equal(cleanup.directory, 'passed');
+});
+
+test('ticket07-review-default-http-port-allows-valid-terminal-origin', {
+  skip: !enabled
+    ? '設定 SSHDECK_TEST_SERVICE_SSH=1 才會啟動本任務隔離 OpenSSH fixtures。'
+    : process.env.SSHDECK_TEST_HTTP_DEFAULT_PORT === '1'
+      ? false
+      : '設定 SSHDECK_TEST_HTTP_DEFAULT_PORT=1 並確認 loopback port 80 空閒後執行。',
+  timeout: 90_000,
+}, async () => {
+  const runId = randomUUID();
+  const evidenceFile = process.env.SSHDECK_TEST_SERVICE_TERMINAL_REVIEW_HTTP80_EVIDENCE;
+  const evidence = {
+    runId,
+    processId: process.pid,
+    nodeVersion: process.version,
+    status: 'running',
+    stage: 'preflight-loopback-port-80',
+    port: 80,
+  };
+  let context;
+  let socket;
+  let failure;
+  let cleanup = {
+    service: 'not-started',
+    fixture: 'not-started',
+    activeTerminals: null,
+    directory: 'not-created',
+  };
+  writeOptionalEvidence(evidenceFile, evidence);
+  try {
+    assert.equal(await portAvailable(80), true, 'loopback port 80 已被占用；不會停止既有程序');
+    context = await createTerminalRegressionContext({
+      servicePort: 80,
+      fixtureEvidenceFile: process.env.SSHDECK_TEST_SERVICE_TERMINAL_REVIEW_HTTP80_FIXTURE_EVIDENCE,
+    });
+    evidence.actualPort = context.service.address().port;
+    evidence.origin = new URL(context.service.url).origin;
+    evidence.fixturePorts = context.fixture.ports;
+    assert.equal(context.service.address().port, 80);
+    assert.equal(evidence.origin, 'http://127.0.0.1');
+
+    const route = socketUrl(context.service.url, terminalPath(context.aliasA));
+    const authorization = { authorization: `Bearer ${context.env.SSHDECK_UI_TOKEN}` };
+    const wrongOrigin = await openSocket(route, {
+      origin: 'http://127.0.0.1:81',
+      headers: authorization,
+    });
+    assert.equal(wrongOrigin.status, 403, 'Origin 的非預設 port 必須維持拒絕');
+    const wrongHost = await openSocket(route, {
+      origin: 'http://127.0.0.1:81',
+      headers: { ...authorization, host: '127.0.0.1:81' },
+    });
+    assert.equal(wrongHost.status, 403, 'Host 的錯誤 port 必須維持拒絕');
+    const httpsDefaultOrigin = await openSocket(route, {
+      origin: 'https://127.0.0.1',
+      headers: authorization,
+    });
+    assert.equal(httpsDefaultOrigin.status, 403, 'HTTPS default port 不得與 HTTP port 80 混同');
+
+    evidence.stage = 'open-real-pty-with-default-http-authority';
+    socket = await openTrustedTerminal(
+      context.service,
+      context.env,
+      context.aliasA,
+      context.fixture.fingerprints.a,
+    );
+    await waitForActiveTerminalCount(context.service, 1);
+    const closedPromise = waitForTerminalSocketClose(socket);
+    socket.send(JSON.stringify({ type: 'close' }));
+    const closed = await closedPromise;
+    assert.equal(closed.code, 1000);
+    await waitForActiveTerminalCount(context.service, 0);
+    assert.equal((await fetch(`${context.service.url}/v1/health`)).status, 200);
+    evidence.status = 'passed';
+    evidence.stage = 'verified-default-port-pty-and-rejected-mismatches';
+  } catch (error) {
+    failure = error;
+    evidence.status = 'failed';
+    evidence.failure = { name: error.name, message: error.message };
+  } finally {
+    if (socket && socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    if (context) cleanup = await context.cleanup();
+    evidence.cleanup = cleanup;
+    writeOptionalEvidence(evidenceFile, evidence, { overwrite: true });
+  }
+  if (failure) throw failure;
+  assert.equal(cleanup.service, 'passed');
+  assert.equal(cleanup.activeTerminals, 0);
+  assert.equal(cleanup.fixture, 'passed');
+  assert.equal(cleanup.directory, 'passed');
 });
 
 test('真實 Chromium 經 UI adapter/service WebSocket 操作隔離 OpenSSH PTY，並驗證取消、lock、shutdown 與 resize', {
