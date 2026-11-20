@@ -17,7 +17,16 @@ sshdeck service start [--host 127.0.0.1] [--port 8788]
 | `SSHDECK_SERVICE_TOKEN` | main／headless CLI 專用 Bearer token，至少 32 個字元。 |
 | `SSHDECK_UI_TOKEN` | UI server-side adapter 專用 Bearer token，至少 32 個字元且不得與 CLI token 相同；不得傳給瀏覽器。UI 登入憑證與此 token 各自獨立。 |
 
-服務預設只監聽 `127.0.0.1`。若部署需要其他 bind address，必須由部署提供隔離網路、只允許授權呼叫端存取及適用的 TLS ingress；本服務不自行提供 TLS。服務目錄不得與 standalone 的 `SSHDECK_HOME`／平台預設資料目錄相同；若發生碰撞，服務拒絕啟動。服務資料也不接受指向既有外部私鑰的 `keyPath`。
+`SSHDECK_SERVICE_TERMINAL_ORIGIN` 是選填設定，只影響 terminal WebSocket 的 Host／Origin 檢查。當 UI adapter 經由 HTTPS ingress 連到 service，而對外 authority 與 service 的內部 listener 不同時，將它設為精確、canonical 的 HTTP(S) origin，例如 `https://sshdeck.example`；非預設 port 必須明列，例如 `https://sshdeck.example:8443`。值不可含帳密、路徑、query 或 fragment。未設定時，terminal WebSocket 仍須符合 service listener 的既有 Host／Origin 與有效 port 檢查。
+
+service 設定 `SSHDECK_SERVICE_TERMINAL_ORIGIN`；UI adapter 的 `SSHDECK_SERVICE_URL` 指向同一個對外 HTTPS origin：
+
+```text
+SSHDECK_SERVICE_URL=https://sshdeck.example
+SSHDECK_SERVICE_TERMINAL_ORIGIN=https://sshdeck.example
+```
+
+服務預設只監聽 `127.0.0.1`。若部署需要其他 bind address，必須由部署提供隔離網路、只允許授權呼叫端存取及 TLS ingress；TLS 在 ingress 終止，本服務本身不提供 TLS。若使用上述 origin 設定，ingress 必須保留轉送至 service 的 `Host` 與 `Origin`，不得改寫；service 只接受與設定值完全相符的 authority，不會因此信任任意 Host／Origin 或允許任意 upstream。服務目錄不得與 standalone 的 `SSHDECK_HOME`／平台預設資料目錄相同；若發生碰撞，服務拒絕啟動。服務資料也不接受指向既有外部私鑰的 `keyPath`。
 
 啟動時會驗證主機 JSON、金鑰索引、鎖定狀態及每個服務金鑰封套。任何缺少的加密金鑰、無法驗證／解密的封套、損壞資料或不支援的外部私鑰關聯都會使服務拒絕啟動；啟動驗證不會修補、重建或覆寫來源資料。封套使用隨機 nonce、AES-256-GCM authentication tag 及固定格式 AAD；每份私鑰與原匯入密語僅以密文保存。API 只回傳公鑰與必要主機資訊。
 
@@ -75,7 +84,7 @@ CLI 將 stdout／stderr event 各自寫入對應檔案描述元，遠端結束�
 
 ## 互動 PTY WebSocket（protocol v1）
 
-終端 endpoint 為 `GET /v1/hosts/{alias}/terminal`，使用標準 WebSocket upgrade；`alias` 必須是 service 已配置且已關聯服務管理金鑰的主機。要求必須帶有 `Authorization: Bearer <SSHDECK_UI_TOKEN>`，只接受 UI token，不接受 `SSHDECK_SERVICE_TOKEN`。缺少／錯誤 token 回 `401`；CLI token、非法 Host／Origin 回 `403`；未知 alias 回 `404`；手動鎖定回 `423`。endpoint 不接受 query string、不支援任意 upstream，並要求 Host／Origin 指向相同的服務 authority。
+終端 endpoint 為 `GET /v1/hosts/{alias}/terminal`，使用標準 WebSocket upgrade；`alias` 必須是 service 已配置且已關聯服務管理金鑰的主機。要求必須帶有 `Authorization: Bearer <SSHDECK_UI_TOKEN>`，只接受 UI token，不接受 `SSHDECK_SERVICE_TOKEN`。缺少／錯誤 token 回 `401`；CLI token、非法 Host／Origin 回 `403`；未知 alias 回 `404`；手動鎖定回 `423`。endpoint 不接受 query string、不支援任意 upstream。Host 與 Origin 必須符合相同的服務 authority；若已設定 `SSHDECK_SERVICE_TERMINAL_ORIGIN`，兩者都必須與該精確 origin 相符，否則依 service listener authority 檢查。
 
 UI adapter 的瀏覽器端路徑為 `/api/shell?alias=<alias>`（受 `SSHDECK_BASE_PATH` 影響時包含 base path，例如 `/sshdeck/api/shell`）。adapter 只使用 server-side `SSHDECK_UI_TOKEN` 連到設定中的固定 `SSHDECK_SERVICE_URL` 與上述 service endpoint；`SSHDECK_SERVICE_TOKEN`、`SSHDECK_UI_TOKEN` 及加密金鑰都不會進入瀏覽器 bundle、URL／query、console、一般回應或 log。瀏覽器傳來的 Basic `Authorization` 不會鏡像至 adapter 或 service WebSocket。adapter 保留自己的 Host／Origin ingress gate，且不接受瀏覽器指定 service URL。
 
