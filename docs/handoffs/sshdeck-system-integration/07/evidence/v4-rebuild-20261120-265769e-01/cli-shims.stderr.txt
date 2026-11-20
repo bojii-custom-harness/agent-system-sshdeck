@@ -1,0 +1,1 @@
+'\"C:\Users\andt3\AppData\Local\Temp\opencode\sshdeck-ticket07-v4-265769e-01\node_modules\.bin\agent-system-sshdeck.cmd\"' 不是內部或外部命令、可執行的程式或批次檔。

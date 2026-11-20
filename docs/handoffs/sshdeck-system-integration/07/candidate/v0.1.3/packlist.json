@@ -3,10 +3,10 @@
     "id": "agent-system-sshdeck@0.1.3",
     "name": "agent-system-sshdeck",
     "version": "0.1.3",
-    "size": 75304,
-    "unpackedSize": 292678,
-    "shasum": "6500ebbd0a22ae5bfdb8d4a16646d80ba93c6967",
-    "integrity": "sha512-We4jMFVkBkbB+7uAabMHLnpDM1p7vAyhUM5R/NLFbmQMElQk77IcR0tN258q8oz6Jf01opyj+zKg1mr8r1XBVw==",
+    "size": 75484,
+    "unpackedSize": 293459,
+    "shasum": "d20bc29cf90a9e1aa23b374735890c7418a283ff",
+    "integrity": "sha512-I39td4U0g2O5MCaWq3hKezvZlBIgf/aEddQWAl1X5tnL5uJp6xx1jqZmtYH2+QZ2jru5yAevxMOcpASIZhXVCg==",
     "filename": "agent-system-sshdeck-0.1.3.tgz",
     "files": [
       {
@@ -21,7 +21,7 @@
       },
       {
         "path": "README.md",
-        "size": 17368,
+        "size": 17424,
         "mode": 420
       },
       {
@@ -46,7 +46,7 @@
       },
       {
         "path": "lib/service-server.js",
-        "size": 38945,
+        "size": 39670,
         "mode": 420
       },
       {

@@ -1,0 +1,15 @@
+{
+    "runId":  "v4-rebuild-20261120-265769e-installed-verify-01",
+    "task":  "Ticket07 V4 installed package required-file integrity verification",
+    "command":  "node.exe",
+    "args":  [
+                 "scripts/verify-release-package.js",
+                 "--installed",
+                 "C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode\\sshdeck-ticket07-v4-265769e-01\\node_modules\\agent-system-sshdeck"
+             ],
+    "cwd":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+    "timeoutMs":  30000,
+    "stdoutPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\installed-verify.stdout.txt",
+    "stderrPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\installed-verify.stderr.txt",
+    "metadataPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\installed-verify.metadata.json"
+}

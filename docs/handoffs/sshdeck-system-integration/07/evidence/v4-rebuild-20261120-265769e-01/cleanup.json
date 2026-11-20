@@ -1,0 +1,25 @@
+{
+    "runId":  "v4-rebuild-20261120-265769e-package-cleanup-01",
+    "startedAt":  "2026-11-20T02:45:39.3039667Z",
+    "finishedAt":  "2026-11-20T02:45:41.2322185Z",
+    "sourceCommit":  "265769e815d608d7bfc1ce7cb83fc46b74cbfd0c",
+    "smokeStatus":  "passed; service CLI stopped; standalone UI stopped",
+    "checkedPorts":  [
+                         18792,
+                         18793
+                     ],
+    "listenersBefore":  [
+
+                        ],
+    "listenersAfter":  [
+
+                       ],
+    "relatedProcessesBefore":  [
+
+                               ],
+    "isolatedInstallPrefix":  "C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode\\sshdeck-ticket07-v4-265769e-01",
+    "isolatedInstallPrefixRemoved":  true,
+    "npmPackStaging":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\npm-pack-staging",
+    "npmPackStagingRemoved":  true,
+    "result":  "passed"
+}

@@ -1,0 +1,12 @@
+{
+    "runId":  "v4-rebuild-20261120-265769e-cli-shims-attempt-01",
+    "task":  "Installed CLI shim preflight script",
+    "command":  "PowerShell script via shell tool",
+    "cwd":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+    "timeoutMs":  15000,
+    "timedOut":  false,
+    "exitCode":  1,
+    "failure":  "PowerShell automatic variable HOME is read-only; no CLI shim was invoked.",
+    "stdout":  "cli-shims-attempt-01.stdout.txt",
+    "stderr":  "cli-shims-attempt-01.stderr.txt"
+}

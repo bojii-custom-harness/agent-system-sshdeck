@@ -1,0 +1,21 @@
+{
+  "runId": "v4-rebuild-20261120-265769e-candidate-integrity-02",
+  "task": "Verify rebuilt candidate source SHA, npm integrity, packlist and Windows-normalized file-list",
+  "command": "node.exe",
+  "args": [
+    "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\candidate-integrity-check.cjs"
+  ],
+  "cwd": "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+  "node": "v24.20.0",
+  "timeoutMs": 30000,
+  "startedAt": "2026-11-20T02:48:32.198Z",
+  "finishedAt": "2026-11-20T02:48:32.323Z",
+  "timedOut": false,
+  "exitCode": 0,
+  "signal": null,
+  "spawnError": null,
+  "processId": 16452,
+  "treeKill": null,
+  "stdout": "candidate-integrity-check-02.stdout.txt",
+  "stderr": "candidate-integrity-check-02.stderr.txt"
+}

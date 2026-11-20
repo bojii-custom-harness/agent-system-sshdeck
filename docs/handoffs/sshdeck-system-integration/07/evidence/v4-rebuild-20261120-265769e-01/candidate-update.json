@@ -1,0 +1,16 @@
+{
+    "updatedAt":  "2026-11-20T02:36:28.5321616Z",
+    "sourceCommit":  "265769e815d608d7bfc1ce7cb83fc46b74cbfd0c",
+    "package":  "agent-system-sshdeck@0.1.3",
+    "packlist":  "packlist.json",
+    "entryCount":  15,
+    "unpackedSize":  293459,
+    "archive":  "agent-system-sshdeck-0.1.3.tgz",
+    "archiveSize":  75484,
+    "archiveSha256":  "0db06a8fd40ff82bd27ce9200034a47ecffa1332fc1d59999f1196f520dadbc9",
+    "npmShasum":  "d20bc29cf90a9e1aa23b374735890c7418a283ff",
+    "npmIntegrity":  "sha512-I39td4U0g2O5MCaWq3hKezvZlBIgf/aEddQWAl1X5tnL5uJp6xx1jqZmtYH2+QZ2jru5yAevxMOcpASIZhXVCg==",
+    "candidatePath":  "docs/handoffs/sshdeck-system-integration/07/candidate/v0.1.3",
+    "previousCandidateSourceCommit":  "49646597d11b33b3e42f2836dd471b67570b822c",
+    "previousCandidateArchiveSha256":  "241b6e8e42affeddfac737c6ef1335c3c48f39f1519f3c89986d052471efcb32"
+}

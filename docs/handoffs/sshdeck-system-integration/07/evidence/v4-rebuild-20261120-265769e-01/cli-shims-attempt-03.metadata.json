@@ -1,0 +1,23 @@
+{
+  "runId": "v4-rebuild-20261120-265769e-cli-shims-attempt-03",
+  "task": "Ticket07 V4 installed package Windows npm bin shim compatibility; retry without quoted command path",
+  "command": "cmd.exe",
+  "args": [
+    "/d",
+    "/c",
+    "C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode\\sshdeck-ticket07-v4-265769e-01\\node_modules\\.bin\\agent-system-sshdeck.cmd host list && C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode\\sshdeck-ticket07-v4-265769e-01\\node_modules\\.bin\\sshdeck.cmd host list"
+  ],
+  "cwd": "C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode\\sshdeck-ticket07-v4-265769e-01",
+  "node": "v24.20.0",
+  "timeoutMs": 30000,
+  "startedAt": "2026-11-20T02:41:02.154Z",
+  "finishedAt": "2026-11-20T02:41:02.452Z",
+  "timedOut": false,
+  "exitCode": 0,
+  "signal": null,
+  "spawnError": null,
+  "processId": 27132,
+  "treeKill": null,
+  "stdout": "cli-shims-attempt-03.stdout.txt",
+  "stderr": "cli-shims-attempt-03.stderr.txt"
+}

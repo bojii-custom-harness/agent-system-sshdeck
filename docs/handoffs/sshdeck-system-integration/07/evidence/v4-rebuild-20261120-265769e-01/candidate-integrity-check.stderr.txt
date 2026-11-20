@@ -1,0 +1,83 @@
+node:assert:152
+  throw new AssertionError(obj);
+  ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
++ actual - expected
+
++ '.opencode/skills/agent-system-sshdeck/references/install.md | 2733 bytes | mode 420\r\n' +
++   '.opencode/skills/agent-system-sshdeck/SKILL.md | 7308 bytes | mode 420\r\n' +
++   'README.md | 17424 bytes | mode 420\r\n' +
++   'bin/sshdeck.js | 115573 bytes | mode 420\r\n' +
++   'docs/service-api.md | 11061 bytes | mode 420\r\n' +
++   'lib/service-client.js | 10857 bytes | mode 420\r\n' +
++   'lib/service-contract.js | 88 bytes | mode 420\r\n' +
++   'lib/service-server.js | 39670 bytes | mode 420\r\n' +
++   'lib/service-store.js | 6661 bytes | mode 420\r\n' +
++   'lib/ssh.js | 30901 bytes | mode 420\r\n' +
++   'package.json | 883 bytes | mode 420\r\n' +
++   'public/connection-guide.js | 31104 bytes | mode 420\r\n' +
++   'public/terminal.js | 3609 bytes | mode 420\r\n' +
++   'public/workspace.css | 5084 bytes | mode 420\r\n' +
++   'public/workspace.js | 10503 bytes | mode 420\r\n'
+- '.opencode/skills/agent-system-sshdeck/references/install.md | 2733 bytes | mode 420\n' +
+-   '.opencode/skills/agent-system-sshdeck/SKILL.md | 7308 bytes | mode 420\n' +
+-   'README.md | 17424 bytes | mode 420\n' +
+-   'bin/sshdeck.js | 115573 bytes | mode 420\n' +
+-   'docs/service-api.md | 11061 bytes | mode 420\n' +
+-   'lib/service-client.js | 10857 bytes | mode 420\n' +
+-   'lib/service-contract.js | 88 bytes | mode 420\n' +
+-   'lib/service-server.js | 39670 bytes | mode 420\n' +
+-   'lib/service-store.js | 6661 bytes | mode 420\n' +
+-   'lib/ssh.js | 30901 bytes | mode 420\n' +
+-   'package.json | 883 bytes | mode 420\n' +
+-   'public/connection-guide.js | 31104 bytes | mode 420\n' +
+-   'public/terminal.js | 3609 bytes | mode 420\n' +
+-   'public/workspace.css | 5084 bytes | mode 420\n' +
+-   'public/workspace.js | 10503 bytes | mode 420\n'
+
+    at Object.<anonymous> (C:\Users\andt3\desktop\agent-system\.worktree\sshdeck-system-integration-sshdeck-tickets-07\docs\handoffs\sshdeck-system-integration\07\evidence\v4-rebuild-20261120-265769e-01\candidate-integrity-check.cjs:57:8)
+    at Module._compile (node:internal/modules/cjs/loader:1929:14)
+    at Object..js (node:internal/modules/cjs/loader:2060:10)
+    at Module.load (node:internal/modules/cjs/loader:1651:32)
+    at Module._load (node:internal/modules/cjs/loader:1443:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: '.opencode/skills/agent-system-sshdeck/references/install.md | 2733 bytes | mode 420\r\n' +
+    '.opencode/skills/agent-system-sshdeck/SKILL.md | 7308 bytes | mode 420\r\n' +
+    'README.md | 17424 bytes | mode 420\r\n' +
+    'bin/sshdeck.js | 115573 bytes | mode 420\r\n' +
+    'docs/service-api.md | 11061 bytes | mode 420\r\n' +
+    'lib/service-client.js | 10857 bytes | mode 420\r\n' +
+    'lib/service-contract.js | 88 bytes | mode 420\r\n' +
+    'lib/service-server.js | 39670 bytes | mode 420\r\n' +
+    'lib/service-store.js | 6661 bytes | mode 420\r\n' +
+    'lib/ssh.js | 30901 bytes | mode 420\r\n' +
+    'package.json | 883 bytes | mode 420\r\n' +
+    'public/connection-guide.js | 31104 bytes | mode 420\r\n' +
+    'public/terminal.js | 3609 bytes | mode 420\r\n' +
+    'public/workspace.css | 5084 bytes | mode 420\r\n' +
+    'public/workspace.js | 10503 bytes | mode 420\r\n',
+  expected: '.opencode/skills/agent-system-sshdeck/references/install.md | 2733 bytes | mode 420\n' +
+    '.opencode/skills/agent-system-sshdeck/SKILL.md | 7308 bytes | mode 420\n' +
+    'README.md | 17424 bytes | mode 420\n' +
+    'bin/sshdeck.js | 115573 bytes | mode 420\n' +
+    'docs/service-api.md | 11061 bytes | mode 420\n' +
+    'lib/service-client.js | 10857 bytes | mode 420\n' +
+    'lib/service-contract.js | 88 bytes | mode 420\n' +
+    'lib/service-server.js | 39670 bytes | mode 420\n' +
+    'lib/service-store.js | 6661 bytes | mode 420\n' +
+    'lib/ssh.js | 30901 bytes | mode 420\n' +
+    'package.json | 883 bytes | mode 420\n' +
+    'public/connection-guide.js | 31104 bytes | mode 420\n' +
+    'public/terminal.js | 3609 bytes | mode 420\n' +
+    'public/workspace.css | 5084 bytes | mode 420\n' +
+    'public/workspace.js | 10503 bytes | mode 420\n',
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.20.0

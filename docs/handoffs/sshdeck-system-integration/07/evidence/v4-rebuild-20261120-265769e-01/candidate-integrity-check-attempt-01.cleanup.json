@@ -1,0 +1,4 @@
+{
+    "runId":  "v4-rebuild-20261120-265769e-candidate-integrity-01",
+    "result":  "read-only integrity check failed on CRLF-vs-LF text rendering in file-list.txt; no services, ports, or temp resources were created."
+}

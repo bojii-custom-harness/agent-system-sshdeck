@@ -1,0 +1,1 @@
+Preflight script used PowerShell variable $home, which resolves to the read-only automatic variable $HOME. It exited before creating cli-home or invoking either installed CLI shim.

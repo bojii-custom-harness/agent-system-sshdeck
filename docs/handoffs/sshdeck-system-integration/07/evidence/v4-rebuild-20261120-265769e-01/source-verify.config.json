@@ -1,0 +1,16 @@
+{
+    "runId":  "v4-rebuild-20261120-265769e-source-verify-01",
+    "task":  "Ticket07 V4 source package required-file and npm pack dry-run verification",
+    "command":  "cmd.exe",
+    "args":  [
+                 "/d",
+                 "/s",
+                 "/c",
+                 "npm.cmd run verify:package"
+             ],
+    "cwd":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+    "timeoutMs":  120000,
+    "stdoutPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\source-verify.stdout.txt",
+    "stderrPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\source-verify.stderr.txt",
+    "metadataPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\source-verify.metadata.json"
+}

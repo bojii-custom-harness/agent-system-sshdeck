@@ -1,0 +1,524 @@
+{
+  "nodeVersion": "v24.20.0",
+  "platform": "win32",
+  "tarTool": "Windows tar.exe -xOf",
+  "resultCount": 15,
+  "differingFiles": [
+    {
+      "path": "bin/sshdeck.js",
+      "archiveVsSource": {
+        "leftSize": 115573,
+        "rightSize": 115573,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 2169,
+        "rightCRLF": 2169,
+        "leftLF": 2400,
+        "rightLF": 2400,
+        "leftLastBytes": "7d293b0d0a7d0d0a",
+        "rightLastBytes": "7d293b0d0a7d0d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 115572,
+        "rightSize": 115573,
+        "equal": false,
+        "mismatches": [
+          {
+            "offset": 19,
+            "left": "6f64650a27757365",
+            "right": "6f64650d0a277573"
+          },
+          {
+            "offset": 20,
+            "left": "64650a2775736520",
+            "right": "64650d0a27757365"
+          },
+          {
+            "offset": 21,
+            "left": "650a277573652073",
+            "right": "650d0a2775736520"
+          },
+          {
+            "offset": 22,
+            "left": "0a27757365207374",
+            "right": "0d0a277573652073"
+          },
+          {
+            "offset": 23,
+            "left": "2775736520737472",
+            "right": "0a27757365207374"
+          },
+          {
+            "offset": 24,
+            "left": "7573652073747269",
+            "right": "2775736520737472"
+          },
+          {
+            "offset": 25,
+            "left": "7365207374726963",
+            "right": "7573652073747269"
+          },
+          {
+            "offset": 26,
+            "left": "6520737472696374",
+            "right": "7365207374726963"
+          }
+        ],
+        "leftCRLF": 2168,
+        "rightCRLF": 2169,
+        "leftLF": 2400,
+        "rightLF": 2400,
+        "leftLastBytes": "7d293b0d0a7d0d0a",
+        "rightLastBytes": "7d293b0d0a7d0d0a"
+      }
+    }
+  ],
+  "results": [
+    {
+      "path": ".opencode/skills/agent-system-sshdeck/references/install.md",
+      "archiveVsSource": {
+        "leftSize": 2733,
+        "rightSize": 2733,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 52,
+        "rightCRLF": 52,
+        "leftLF": 52,
+        "rightLF": 52,
+        "leftLastBytes": "617365e380820d0a",
+        "rightLastBytes": "617365e380820d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 2733,
+        "rightSize": 2733,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 52,
+        "rightCRLF": 52,
+        "leftLF": 52,
+        "rightLF": 52,
+        "leftLastBytes": "617365e380820d0a",
+        "rightLastBytes": "617365e380820d0a"
+      }
+    },
+    {
+      "path": ".opencode/skills/agent-system-sshdeck/SKILL.md",
+      "archiveVsSource": {
+        "leftSize": 7308,
+        "rightSize": 7308,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 102,
+        "rightCRLF": 102,
+        "leftLF": 102,
+        "rightLF": 102,
+        "leftLastBytes": "e58a9fe380820d0a",
+        "rightLastBytes": "e58a9fe380820d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 7308,
+        "rightSize": 7308,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 102,
+        "rightCRLF": 102,
+        "leftLF": 102,
+        "rightLF": 102,
+        "leftLastBytes": "e58a9fe380820d0a",
+        "rightLastBytes": "e58a9fe380820d0a"
+      }
+    },
+    {
+      "path": "README.md",
+      "archiveVsSource": {
+        "leftSize": 17424,
+        "rightSize": 17424,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 157,
+        "rightCRLF": 157,
+        "leftLF": 168,
+        "rightLF": 168,
+        "leftLastBytes": "e8ad89e380820d0a",
+        "rightLastBytes": "e8ad89e380820d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 17424,
+        "rightSize": 17424,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 157,
+        "rightCRLF": 157,
+        "leftLF": 168,
+        "rightLF": 168,
+        "leftLastBytes": "e8ad89e380820d0a",
+        "rightLastBytes": "e8ad89e380820d0a"
+      }
+    },
+    {
+      "path": "bin/sshdeck.js",
+      "archiveVsSource": {
+        "leftSize": 115573,
+        "rightSize": 115573,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 2169,
+        "rightCRLF": 2169,
+        "leftLF": 2400,
+        "rightLF": 2400,
+        "leftLastBytes": "7d293b0d0a7d0d0a",
+        "rightLastBytes": "7d293b0d0a7d0d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 115572,
+        "rightSize": 115573,
+        "equal": false,
+        "mismatches": [
+          {
+            "offset": 19,
+            "left": "6f64650a27757365",
+            "right": "6f64650d0a277573"
+          },
+          {
+            "offset": 20,
+            "left": "64650a2775736520",
+            "right": "64650d0a27757365"
+          },
+          {
+            "offset": 21,
+            "left": "650a277573652073",
+            "right": "650d0a2775736520"
+          },
+          {
+            "offset": 22,
+            "left": "0a27757365207374",
+            "right": "0d0a277573652073"
+          },
+          {
+            "offset": 23,
+            "left": "2775736520737472",
+            "right": "0a27757365207374"
+          },
+          {
+            "offset": 24,
+            "left": "7573652073747269",
+            "right": "2775736520737472"
+          },
+          {
+            "offset": 25,
+            "left": "7365207374726963",
+            "right": "7573652073747269"
+          },
+          {
+            "offset": 26,
+            "left": "6520737472696374",
+            "right": "7365207374726963"
+          }
+        ],
+        "leftCRLF": 2168,
+        "rightCRLF": 2169,
+        "leftLF": 2400,
+        "rightLF": 2400,
+        "leftLastBytes": "7d293b0d0a7d0d0a",
+        "rightLastBytes": "7d293b0d0a7d0d0a"
+      }
+    },
+    {
+      "path": "docs/service-api.md",
+      "archiveVsSource": {
+        "leftSize": 11061,
+        "rightSize": 11061,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 82,
+        "rightCRLF": 82,
+        "leftLF": 115,
+        "rightLF": 115,
+        "leftLastBytes": "e78b80e380820d0a",
+        "rightLastBytes": "e78b80e380820d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 11061,
+        "rightSize": 11061,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 82,
+        "rightCRLF": 82,
+        "leftLF": 115,
+        "rightLF": 115,
+        "leftLastBytes": "e78b80e380820d0a",
+        "rightLastBytes": "e78b80e380820d0a"
+      }
+    },
+    {
+      "path": "lib/service-client.js",
+      "archiveVsSource": {
+        "leftSize": 10857,
+        "rightSize": 10857,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 250,
+        "rightCRLF": 250,
+        "leftLF": 250,
+        "rightLF": 250,
+        "leftLastBytes": "436c69207d3b0d0a",
+        "rightLastBytes": "436c69207d3b0d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 10857,
+        "rightSize": 10857,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 250,
+        "rightCRLF": 250,
+        "leftLF": 250,
+        "rightLF": 250,
+        "leftLastBytes": "436c69207d3b0d0a",
+        "rightLastBytes": "436c69207d3b0d0a"
+      }
+    },
+    {
+      "path": "lib/service-contract.js",
+      "archiveVsSource": {
+        "leftSize": 88,
+        "rightSize": 88,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 5,
+        "rightCRLF": 5,
+        "leftLF": 5,
+        "rightLF": 5,
+        "leftLastBytes": "494f4e207d3b0d0a",
+        "rightLastBytes": "494f4e207d3b0d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 88,
+        "rightSize": 88,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 5,
+        "rightCRLF": 5,
+        "leftLF": 5,
+        "rightLF": 5,
+        "leftLastBytes": "494f4e207d3b0d0a",
+        "rightLastBytes": "494f4e207d3b0d0a"
+      }
+    },
+    {
+      "path": "lib/service-server.js",
+      "archiveVsSource": {
+        "leftSize": 39670,
+        "rightSize": 39670,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 526,
+        "rightCRLF": 526,
+        "leftLF": 949,
+        "rightLF": 949,
+        "leftLastBytes": "732c0d0a7d3b0d0a",
+        "rightLastBytes": "732c0d0a7d3b0d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 39670,
+        "rightSize": 39670,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 526,
+        "rightCRLF": 526,
+        "leftLF": 949,
+        "rightLF": 949,
+        "leftLastBytes": "732c0d0a7d3b0d0a",
+        "rightLastBytes": "732c0d0a7d3b0d0a"
+      }
+    },
+    {
+      "path": "lib/service-store.js",
+      "archiveVsSource": {
+        "leftSize": 6661,
+        "rightSize": 6661,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 174,
+        "rightCRLF": 174,
+        "leftLF": 174,
+        "rightLF": 174,
+        "leftLastBytes": "652c0d0a7d3b0d0a",
+        "rightLastBytes": "652c0d0a7d3b0d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 6661,
+        "rightSize": 6661,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 174,
+        "rightCRLF": 174,
+        "leftLF": 174,
+        "rightLF": 174,
+        "leftLastBytes": "652c0d0a7d3b0d0a",
+        "rightLastBytes": "652c0d0a7d3b0d0a"
+      }
+    },
+    {
+      "path": "lib/ssh.js",
+      "archiveVsSource": {
+        "leftSize": 30901,
+        "rightSize": 30901,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 681,
+        "rightCRLF": 681,
+        "leftLF": 719,
+        "rightLF": 719,
+        "leftLastBytes": "4b4559207d3b0d0a",
+        "rightLastBytes": "4b4559207d3b0d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 30901,
+        "rightSize": 30901,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 681,
+        "rightCRLF": 681,
+        "leftLF": 719,
+        "rightLF": 719,
+        "leftLastBytes": "4b4559207d3b0d0a",
+        "rightLastBytes": "4b4559207d3b0d0a"
+      }
+    },
+    {
+      "path": "package.json",
+      "archiveVsSource": {
+        "leftSize": 883,
+        "rightSize": 883,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 36,
+        "rightCRLF": 36,
+        "leftLF": 37,
+        "rightLF": 37,
+        "leftLastBytes": "20207d0d0a7d0d0a",
+        "rightLastBytes": "20207d0d0a7d0d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 883,
+        "rightSize": 883,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 36,
+        "rightCRLF": 36,
+        "leftLF": 37,
+        "rightLF": 37,
+        "leftLastBytes": "20207d0d0a7d0d0a",
+        "rightLastBytes": "20207d0d0a7d0d0a"
+      }
+    },
+    {
+      "path": "public/connection-guide.js",
+      "archiveVsSource": {
+        "leftSize": 31104,
+        "rightSize": 31104,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 424,
+        "rightCRLF": 424,
+        "leftLF": 424,
+        "rightLF": 424,
+        "leftLastBytes": "0a7d2928293b0d0a",
+        "rightLastBytes": "0a7d2928293b0d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 31104,
+        "rightSize": 31104,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 424,
+        "rightCRLF": 424,
+        "leftLF": 424,
+        "rightLF": 424,
+        "leftLastBytes": "0a7d2928293b0d0a",
+        "rightLastBytes": "0a7d2928293b0d0a"
+      }
+    },
+    {
+      "path": "public/terminal.js",
+      "archiveVsSource": {
+        "leftSize": 3609,
+        "rightSize": 3609,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 79,
+        "rightCRLF": 79,
+        "leftLF": 85,
+        "rightLF": 85,
+        "leftLastBytes": "0a7d2928293b0d0a",
+        "rightLastBytes": "0a7d2928293b0d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 3609,
+        "rightSize": 3609,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 79,
+        "rightCRLF": 79,
+        "leftLF": 85,
+        "rightLF": 85,
+        "leftLastBytes": "0a7d2928293b0d0a",
+        "rightLastBytes": "0a7d2928293b0d0a"
+      }
+    },
+    {
+      "path": "public/workspace.css",
+      "archiveVsSource": {
+        "leftSize": 5084,
+        "rightSize": 5084,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 78,
+        "rightCRLF": 78,
+        "leftLF": 78,
+        "rightLF": 78,
+        "leftLastBytes": "3b207d0d0a7d0d0a",
+        "rightLastBytes": "3b207d0d0a7d0d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 5084,
+        "rightSize": 5084,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 78,
+        "rightCRLF": 78,
+        "leftLF": 78,
+        "rightLF": 78,
+        "leftLastBytes": "3b207d0d0a7d0d0a",
+        "rightLastBytes": "3b207d0d0a7d0d0a"
+      }
+    },
+    {
+      "path": "public/workspace.js",
+      "archiveVsSource": {
+        "leftSize": 10503,
+        "rightSize": 10503,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 213,
+        "rightCRLF": 213,
+        "leftLF": 213,
+        "rightLF": 213,
+        "leftLastBytes": "0a7d2928293b0d0a",
+        "rightLastBytes": "0a7d2928293b0d0a"
+      },
+      "installedVsArchive": {
+        "leftSize": 10503,
+        "rightSize": 10503,
+        "equal": true,
+        "mismatches": [],
+        "leftCRLF": 213,
+        "rightCRLF": 213,
+        "leftLF": 213,
+        "rightLF": 213,
+        "leftLastBytes": "0a7d2928293b0d0a",
+        "rightLastBytes": "0a7d2928293b0d0a"
+      }
+    }
+  ]
+}

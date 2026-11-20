@@ -1,0 +1,4 @@
+{
+    "runId":  "v4-rebuild-20261120-265769e-cli-shims-02",
+    "result":  "cmd.exe exited 1 immediately because it did not resolve the quoted .cmd path; no CLI process or package smoke port was started; isolated cli-home retained for corrected attempt."
+}

@@ -1,0 +1,109 @@
+{
+  "ticket": "SSHDeck Ticket 07",
+  "baseCommit": "c2b96f437bcf1ae1122b113794292996aaca485f",
+  "sourceCommit": "265769e815d608d7bfc1ce7cb83fc46b74cbfd0c",
+  "package": {
+    "name": "agent-system-sshdeck",
+    "version": "0.1.3",
+    "archive": "docs/handoffs/sshdeck-system-integration/07/candidate/v0.1.3/agent-system-sshdeck-0.1.3.tgz",
+    "archiveSize": 75484,
+    "archiveSha256": "0db06a8fd40ff82bd27ce9200034a47ecffa1332fc1d59999f1196f520dadbc9",
+    "npmShasum": "d20bc29cf90a9e1aa23b374735890c7418a283ff",
+    "npmIntegrity": "sha512-I39td4U0g2O5MCaWq3hKezvZlBIgf/aEddQWAl1X5tnL5uJp6xx1jqZmtYH2+QZ2jru5yAevxMOcpASIZhXVCg==",
+    "entryCount": 15,
+    "unpackedSize": 293459,
+    "packlist": "docs/handoffs/sshdeck-system-integration/07/candidate/v0.1.3/packlist.json",
+    "fileList": "docs/handoffs/sshdeck-system-integration/07/candidate/v0.1.3/file-list.txt",
+    "provenance": "docs/handoffs/sshdeck-system-integration/07/candidate/v0.1.3/provenance.json"
+  },
+  "previousCandidate": {
+    "sourceCommit": "49646597d11b33b3e42f2836dd471b67570b822c",
+    "archiveSha256": "241b6e8e42affeddfac737c6ef1335c3c48f39f1519f3c89986d052471efcb32",
+    "snapshot": "previous-candidate/"
+  },
+  "environment": {
+    "platform": "win32",
+    "node": "v24.20.0",
+    "npm": "11.19.0",
+    "packageLockVersion": 3
+  },
+  "verification": {
+    "sourceVerify": {
+      "command": "npm run verify:package",
+      "runId": "v4-rebuild-20261120-265769e-source-verify-01",
+      "exitCode": 0
+    },
+    "npmPack": {
+      "command": "npm pack --json --pack-destination <evidence>/npm-pack-staging",
+      "runId": "v4-rebuild-20261120-265769e-npm-pack-01",
+      "exitCode": 0
+    },
+    "actualPacklist": {
+      "command": "node scripts/verify-release-package.js --packlist <evidence>/packlist.json",
+      "runId": "v4-rebuild-20261120-265769e-packlist-verify-01",
+      "exitCode": 0
+    },
+    "candidatePathPacklist": {
+      "command": "node scripts/verify-release-package.js --packlist docs/handoffs/sshdeck-system-integration/07/candidate/v0.1.3/packlist.json",
+      "runId": "v4-rebuild-20261120-265769e-candidate-packlist-final-01",
+      "exitCode": 0
+    },
+    "isolatedInstall": {
+      "command": "npm install --prefix <unique-temp-prefix> --ignore-scripts --no-audit --no-fund <candidate-archive>",
+      "runId": "v4-rebuild-20261120-265769e-isolated-install-01",
+      "exitCode": 0,
+      "addedPackages": 12
+    },
+    "installedFiles": {
+      "command": "node scripts/verify-release-package.js --installed <isolated-package-root>",
+      "runId": "v4-rebuild-20261120-265769e-installed-verify-01",
+      "exitCode": 0
+    },
+    "candidateIntegrity": {
+      "runId": "v4-rebuild-20261120-265769e-candidate-integrity-02",
+      "exitCode": 0,
+      "checks": [
+        "目前 source SHA 與 provenance sourceCommit 相符",
+        "package 與 lockfile 的名稱／版本相符",
+        "candidate packlist 與 npm pack 擷取結果相符",
+        "file list 正規化換行後與 packlist 相符",
+        "archive 大小、SHA-256、npm SHA-1 與 SHA-512 integrity 均與 provenance 相符"
+      ]
+    },
+    "installedBins": {
+      "runId": "v4-rebuild-20261120-265769e-cli-shims-attempt-03",
+      "exitCode": 0,
+      "result": "兩個 Windows npm bin shim 均成功執行 host list。"
+    },
+    "sourceArchiveInstalledComparison": {
+      "runId": "v4-rebuild-20261120-265769e-installed-content-compare-02",
+      "exitCode": 0,
+      "result": "15 個 archive entry 均與 source bytes 完全一致。安裝檔除 npm 在 Windows 安裝 bin 時將 bin/sshdeck.js shebang 的 CRLF 正規化為 LF 外，皆與 archive 相同；更新後的比對僅允許此項轉換。"
+    },
+    "packageSmoke": {
+      "command": "node scripts/smoke-release-package.js --installed <isolated-package-root>",
+      "runId": "v4-rebuild-20261120-265769e-package-smoke-01",
+      "exitCode": 0,
+      "result": "standalone 與掛載式 service UI 的 assets／API CRUD 通過，service health 通過。"
+    }
+  },
+  "cleanup": {
+    "runId": "v4-rebuild-20261120-265769e-package-cleanup-01",
+    "result": "passed",
+    "isolatedInstallPrefixRemoved": true,
+    "npmPackStagingRemoved": true,
+    "ports18792And18793Free": true,
+    "relatedProcesses": []
+  },
+  "externalActions": {
+    "tag": false,
+    "push": false,
+    "publish": false,
+    "release": false
+  },
+  "executionNotes": [
+    "首次 PowerShell ConvertFrom-Json preflight 因 package-lock 重複屬性而失敗；失敗證據已保留，改用 Node.js JSON.parse 後重跑通過。",
+    "嚴格安裝位元組比對發現 Windows npm bin shebang 的 CRLF-to-LF 正規化；source 與 archive 仍逐位元組相同，修正後僅允許此項安裝轉換。",
+    "file-list 完整性檢查最初只接受 LF，而 Windows 寫入 CRLF；失敗證據已保留，修正後先正規化換行再比對。"
+  ]
+}

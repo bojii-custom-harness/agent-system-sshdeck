@@ -1,0 +1,4 @@
+{
+    "runId":  "v4-rebuild-20261120-265769e-installed-content-compare-01",
+    "result":  "read-only comparison failed on a strict installed file-size assertion; no service, port, or temporary resource was created; source/archive/installed byte diagnosis is in byte-diff-diagnosis.stdout.txt."
+}

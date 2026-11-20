@@ -1,0 +1,21 @@
+{
+  "runId": "v4-rebuild-20261120-265769e-installed-content-compare-01",
+  "task": "Ticket07 V4 compare all installed package files to source and confirm README version-based tag instructions",
+  "command": "node.exe",
+  "args": [
+    "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\compare-installed-package.cjs"
+  ],
+  "cwd": "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+  "node": "v24.20.0",
+  "timeoutMs": 30000,
+  "startedAt": "2026-11-20T02:42:10.170Z",
+  "finishedAt": "2026-11-20T02:42:10.241Z",
+  "timedOut": false,
+  "exitCode": 1,
+  "signal": null,
+  "spawnError": null,
+  "processId": 15080,
+  "treeKill": null,
+  "stdout": "installed-content-compare.stdout.txt",
+  "stderr": "installed-content-compare.stderr.txt"
+}

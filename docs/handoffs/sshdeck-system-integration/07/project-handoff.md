@@ -8,9 +8,9 @@
 
 - 權威工作項目：Agent System `.scratch/sshdeck-system-integration/issues/07-service-mode-terminal.md`；本票只修改 SSHDeck 產品 repo，未修改 Agent System issue、tickets、`test.md`、`execution-state.md` 或 Ticket 03／04。
 - 基底：Ticket 01／02 已驗收的 SSHDeck integration `c2b96f437bcf1ae1122b113794292996aaca485f`。
-- 產品程式碼提交：`35d75f52e090c084357418bdd4ea61757d66227c`（新增 service-mode 互動終端與 WebSocket bridge）、`e7017765a69a4781bfb8d5c1d11d18576b5a823f`（處理 service WebSocket 非正常關閉），以及 `1b32e86ecfccb8e3d36d892f62c45bce0ace2dcd`（保留 service shutdown 執行清理）。
-- README／service API 文件提交：`49646597d11b33b3e42f2836dd471b67570b822c`（文件化 service-mode 互動終端契約）。`0.1.3` package candidate 僅以此已提交 source SHA 打包；後續 handoff/evidence commit 不改變該 candidate 的來源。
-- 目前產品版本：`0.1.3`；本機 candidate 已建立並完成隔離安裝與相容 smoke，未發布。
+- 產品程式碼提交：`35d75f52e090c084357418bdd4ea61757d66227c`（新增 service-mode 互動終端與 WebSocket bridge）、`e7017765a69a4781bfb8d5c1d11d18576b5a823f`（處理 service WebSocket 非正常關閉）、`1b32e86ecfccb8e3d36d892f62c45bce0ace2dcd`（保留 service shutdown 執行清理），以及 `3bcc715f3ac8b657ef5da4df55652a35ca2a5b42`（修正非法控制訊息及 HTTP default-port 來源驗證）。
+- README／service API 文件提交：`49646597d11b33b3e42f2836dd471b67570b822c`（文件化 service-mode 互動終端契約）；README 版本/tag 範例另於 `265769e815d608d7bfc1ce7cb83fc46b74cbfd0c` 更新，改由 `package.json` 版本推送對應 tag。
+- 目前產品版本：`0.1.3`；本機 V4 candidate 以 source SHA `265769e815d608d7bfc1ce7cb83fc46b74cbfd0c` 重建，已完成 packlist、隔離安裝、bin shim 與 package smoke，未發布。
 - 產品程式與 README／service API 以獨立 source commits 保存；本目錄的 handoff、candidate 與 evidence 另行獨立提交，未納入 package source snapshot。
 
 ## 交付狀態
@@ -21,11 +21,11 @@
 | T2：server-side UI adapter bridge 與 service-mode UI | 實作完成 | upstream 固定使用設定的 service origin 與 server-side UI token；不轉送 browser Basic Authorization。 |
 | T3：PTY input/output、resize、trust、取消、正常結束與資源清理 | 實作及真實驗收通過 | 並行 session、單獨取消、瀏覽器 disconnect、lock、adapter／service shutdown 與遠端 shell 結束後重開均有真實測試。 |
 | T4：真實 service／隔離 OpenSSH／Chromium 測試與 standalone 相容 | 實作及驗收通過 | Ticket 07 service 與 standalone Chromium E2E 均使用真實隔離 WSL OpenSSH PTY，未以 mock SSH／WebSocket 取代。 |
-| T5：文件與固定版本 package candidate | 完成 | README／service API 於 `49646597d11b33b3e42f2836dd471b67570b822c` 提交；`0.1.3` archive、packlist、檔案清單、SHA-256、隔離安裝及相容 smoke 均完成。 |
+| T5：文件與固定版本 package candidate | 完成 | README／service API 契約於 `49646597d11b33b3e42f2836dd471b67570b822c` 提交；STD-F02 README tag 範例於 `265769e815d608d7bfc1ce7cb83fc46b74cbfd0c` 修正。V4 `0.1.3` candidate 已以該 SHA 重建並通過 packlist、隔離安裝與 package smoke。 |
 | V1 | 通過 | 真實 Chromium 經 UI adapter／service WebSocket 到兩個隔離 OpenSSH PTY；驗證輸入、輸出、resize、取消、結束及重開。 |
 | V2 | 通過 | 驗證 UI-only token、拒絕缺少／錯誤／CLI token、非法來源、未知 alias、locked；未確認首次／變更 fingerprint 時不開 PTY，人工確認後可連線；browser Basic 未轉送，token 不出現在瀏覽器資產、URL、console、log 或一般回應。 |
 | V3 | 通過 | 兩個並行 PTY 的獨立取消與瀏覽器 disconnect、service lock 關閉既有並拒絕新 PTY、明確 unlock、adapter／service shutdown 清理，以及 standalone 相容均通過。 |
-| V4 | 通過 | 固定 `0.1.3` candidate 以 source SHA `49646597d11b33b3e42f2836dd471b67570b822c` 打包；15 個檔案、unpacked size 292,678 bytes；archive SHA-256 `241b6e8e42affeddfac737c6ef1335c3c48f39f1519f3c89986d052471efcb32`。隔離安裝、packlist、installed contents、兩個 CLI bin 與 standalone／service UI compatibility smoke 通過。 |
+| V4 | 通過 | `0.1.3` candidate source SHA `265769e815d608d7bfc1ce7cb83fc46b74cbfd0c`；15 個檔案、unpacked size 293,459 bytes、archive size 75,484 bytes、archive SHA-256 `0db06a8fd40ff82bd27ce9200034a47ecffa1332fc1d59999f1196f520dadbc9`。npm SHA-1 `d20bc29cf90a9e1aa23b374735890c7418a283ff` 與 SHA-512 integrity 亦核對通過。packlist/source、隔離安裝、兩個 Windows CLI bin shim 與 standalone／service UI package smoke 均通過。重建前 candidate provenance 已保存於新 evidence 的 `previous-candidate/`。
 
 ## 驗證與證據
 
@@ -36,19 +36,30 @@
 - `node --check` 覆蓋本票修改的 JavaScript 檔案，`git diff --check` 與 staged `git diff --cached --check` 均通過；完整 suite 的 `0.1.3` 版本與現有 service/API 測試亦通過。
 - 聚焦測試紀錄確認 service、UI、fixture cleanup 均通過；fixture 記錄兩個 transient units 為 `not-found`、ports `2227`／`2228` free，並已移除本次隔離目錄。
 - 先前測試失敗及其清理證據保留於本目錄的 `evidence/`；最終驗收以 `ticket-07-terminal-20261120-08` 與 `ticket-07-suite-20261120-07` 為準。較早 run 的失敗屬測試條件／斷言修正，已重跑受影響測試及完整 suite。新增的 abnormal upstream WebSocket close 回歸使用真實 service TCP socket destroy，並確認 PTY 清理後可重連。
-- `npm run verify:package` 通過；實際 archive packlist 另以 `node scripts/verify-release-package.js --packlist docs/handoffs/sshdeck-system-integration/07/candidate/v0.1.3/packlist.json` 驗證，包含 5 項必要執行／文件／skill 檔。
-- candidate：`docs/handoffs/sshdeck-system-integration/07/candidate/v0.1.3/agent-system-sshdeck-0.1.3.tgz`，size 75,304 bytes。完整 npm pack JSON 在同目錄 `packlist.json`，人類可讀清單在 `file-list.txt`，checksum 在 `SHA256SUMS`，provenance 在 `provenance.json`；15 個 packlist 檔案未包含 handoff 或測試證據。
-- 以 archive 在 `C:\\Users\\andt3\\AppData\\Local\\Temp\\opencode` 下建立唯一隔離 prefix，執行 `npm install --prefix <prefix> --ignore-scripts --no-audit --no-fund <archive>`，安裝 12 個 packages；`verify-release-package.js --installed` 與安裝後 `agent-system-sshdeck host list`／`sshdeck host list` 兩個 bin shim 均通過。prefix 路徑、輸出與 exit code 保存在 `evidence/ticket-07-package-20261120-01/`；完成後已移除該唯一 prefix。
-- `node scripts/smoke-release-package.js --installed <isolated-package-root>` 通過，實測安裝後 standalone root UI／assets/API CRUD 與 service `/sshdeck/` UI／assets/API CRUD；service CLI stopped、UI stopped、ports `18792`／`18793` free、`cleanupPassed: true`。完整 smoke evidence 同上。
+- `npm run verify:package` 在 source SHA `265769e815d608d7bfc1ce7cb83fc46b74cbfd0c` 通過；實際 archive packlist 另以 `node scripts/verify-release-package.js --packlist <evidence>/packlist.json` 驗證，包含 5 項必要執行／文件／skill 檔。此次 npm pack 記錄 15 個檔案、unpacked size 293,459 bytes；archive SHA-256、npm SHA-1／SHA-512 integrity、source SHA、packlist 與 file list 核對摘要見 `evidence/v4-rebuild-20261120-265769e-01/candidate-validation-summary.json`。
+- candidate：`docs/handoffs/sshdeck-system-integration/07/candidate/v0.1.3/agent-system-sshdeck-0.1.3.tgz`，size 75,484 bytes，SHA-256 `0db06a8fd40ff82bd27ce9200034a47ecffa1332fc1d59999f1196f520dadbc9`；source SHA `265769e815d608d7bfc1ce7cb83fc46b74cbfd0c`。packlist、file list、checksum 與 provenance 同目錄。上個 candidate source SHA `49646597d11b33b3e42f2836dd471b67570b822c` 及 archive SHA-256 `241b6e8e42affeddfac737c6ef1335c3c48f39f1519f3c89986d052471efcb32` 已先複製保存於 `evidence/v4-rebuild-20261120-265769e-01/previous-candidate/`；新 packlist 未包含 handoff 或 evidence。
+- 隔離安裝 `npm install --prefix <unique-prefix> --ignore-scripts --no-audit --no-fund <archive>` 成功，安裝 12 個 packages；`verify-release-package.js --installed` 及 `agent-system-sshdeck host list`／`sshdeck host list` 兩個 Windows bin shim 均通過。逐一比較 15 個 packlist 檔案：archive bytes 與 source 完全一致；Windows npm 安裝只將 `bin/sshdeck.js` shebang 首行 CRLF 正規化為 LF，其餘內容相同。完整輸出、SHA 與診斷保存在 `evidence/v4-rebuild-20261120-265769e-01/`。
+- `node scripts/smoke-release-package.js --installed <isolated-package-root>` 通過，實測 standalone root UI／assets/API CRUD 與 service `/sshdeck/` UI／assets/API CRUD；service CLI stopped、UI stopped、ports `18792`／`18793` free、`cleanupPassed: true`。唯一隔離 prefix 及 npm pack staging 已清理，cleanup 證據在同一 V4 evidence 目錄。
+
+## Review 修正（2026-11-20）
+
+- 唯一 source/test commit：`3bcc715f3ac8b657ef5da4df55652a35ca2a5b42`，只包含 `lib/service-server.js`、`test/service-terminal.test.js`、`test/helpers/service-process.js`、`scripts/service-process-worker.js`；README、service API、handoff 與 evidence 未納入該 commit。
+- `SSHDECK-07-SPEC-01` 根因：JSON `null` 等非 object frame 在讀取 `message.type` 時會丟出未處理 `TypeError`，使 service process 結束；resize 邊界錯誤則被靜默忽略。預防：先驗證 frame 為非 null、非 array object；未知／不合法控制 frame 及非整數或不在 1–1000 範圍的 resize 都回報 `INVALID_TERMINAL_FRAME` 並關閉該 session。真實 service 回歸涵蓋 `null`、`true`、`[]`、`{}` 與六種 resize 邊界／型別；每次拒絕後確認 survivor PTY 可輸入／輸出、service health 仍為 200，且 active terminal 清為 0。Red 根因與修復後證據分別見 `evidence/review-fixes-20261120-06-red-structure-e520fda266af4f1c90b1e239ea5b3867/structure.json`、`evidence/review-fixes-20261120-10-green-targeted-6d91bf8883b6483d956e11d03fb5b38a/structure.json`、`resize.json`。
+- `SSHDECK-07-STD-F01` 根因：Node URL 會正規化省略的預設 port，`Number(hostUrl.port)` 因空字串成為 0，導致合法 HTTP port 80 authority 被拒絕。預防：以 URL scheme 的預設值計算 Host／Origin 有效 port，兩者均須等於實際 listener port，並保留來源協定白名單及 Host/Origin authority 比對。真實 port 80 service／PTY 成功連線，錯誤 port 與 HTTPS default-port Origin 仍拒絕；證據見 `evidence/review-fixes-20261120-10-green-targeted-6d91bf8883b6483d956e11d03fb5b38a/http80.json`。
+- 聚焦回歸命令：`node --test --test-concurrency=1 --test-reporter=tap --test-name-pattern=ticket07-review test/service-terminal.test.js`；Node `v24.20.0`，3 pass／0 fail／0 skip，32,110 ms。證據目錄：`evidence/review-fixes-20261120-10-green-targeted-6d91bf8883b6483d956e11d03fb5b38a/`。
+- 全套回歸命令：`npm test`（以 `cmd.exe /d /s /c "npm.cmd test"` 執行）；Node `v24.20.0`、npm `11.19.0`、timeout 180,000 ms，exit 0，66 tests／42 pass／0 fail／24 skip，125,090 ms。真實 service、兩個隔離 WSL OpenSSH 與 Chromium E2E 均在本輪執行。證據：`evidence/review-fixes-20261120-11-npm-test-fef74c1d59d743e480c92b13a2097230/`。
+- 清理：聚焦測試三組 service／fixture 均回報 passed、active terminals 0、fixture ports `2227`／`2228` 清理、service process exit 0、臨時目錄移除；全套測試後 cleanup 記錄無 Windows listener／相關 process／剩餘 temp dir，WSL Ticket07 units 與 `2227`／`2228` listener 已清除。剩餘失敗重試與 runner 診斷輸出保留於同一 `evidence/` 目錄，未混入 source commit。
+- 本次改動已實作並通過自身回歸，尚待原 Spec／Standards reviewers 對已修正的 `SSHDECK-07-SPEC-01`、`SSHDECK-07-STD-F01` 進行 targeted re-review；owner 不自行標示 review PASS。
+- `SSHDECK-07-STD-F02` 已於 README commit `265769e815d608d7bfc1ce7cb83fc46b74cbfd0c` 修正：`npm version patch` 後從 `package.json` 讀取實際版本並推送 `"v$version"`。此處只修改範例；本輪未執行 `npm version`、建立 tag、push、publish 或 Release。
 
 ## 文件授權、package 與發布限制
 
-- README 與 `docs/service-api.md` 的文件提交授權已取得，且已於 `49646597d11b33b3e42f2836dd471b67570b822c` 分開提交；本輪沒有再修改兩份 gated 文件。
-- handoff／evidence／candidate artifacts 將與產品 source 分開提交；package source SHA 固定為上述文件 commit，不包含此次 handoff/evidence commit。
+- README 與 `docs/service-api.md` 的文件提交授權已取得；service-mode 契約於 `49646597d11b33b3e42f2836dd471b67570b822c` 提交，README tag 範例另於 `265769e815d608d7bfc1ce7cb83fc46b74cbfd0c` 單獨提交。
+- 本地 V4 candidate source SHA 固定為 `265769e815d608d7bfc1ce7cb83fc46b74cbfd0c`；candidate、handoff 與新 V4 evidence 依本批授權另行提交，不改變 package source snapshot。
 - 本票沒有建立新 tag、push、npm publish 或公開 GitHub Release。V4 本地 candidate 已完成，任何外部發布仍未授權。
 
 ## 下一步
 
-1. 獨立票級 reviewer 檢查產品提交、真實 E2E 證據與本地 candidate provenance；本 owner 不代替 reviewer。
-2. 本目錄的 handoff、先前失敗及成功驗收證據、package candidate 與 V4 evidence 已與產品 source 分開提交，供 reviewer 查閱。
+1. 主 agent 安排原 Spec／Standards reviewers 對 `SSHDECK-07-SPEC-01`、`SSHDECK-07-STD-F01` 與 README 的 `SSHDECK-07-STD-F02` 進行 targeted re-review；owner 不自行標示 review PASS。
+2. 本批 candidate、handoff 與新 evidence 獨立提交；既有 `evidence/review-fixes-20261120-01` 至 `-11` 原樣保留，未納入本批候選 evidence 變更。
 3. 不建立 tag、不 push、不 publish、不建立 GitHub Release；發布若有需求仍須另行取得明確授權。README／service API 若需再改，須再取得該批文件的明確授權。

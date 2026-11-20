@@ -1,0 +1,50 @@
+{
+  "package": "agent-system-sshdeck@0.1.3",
+  "nodeVersion": "v24.20.0",
+  "uiPort": 18792,
+  "servicePort": 18793,
+  "startedAt": "2026-11-20T02:41:32.101Z",
+  "status": "passed",
+  "stage": "all-assertions-passed",
+  "servicePid": 16012,
+  "standaloneUi": {
+    "path": "/",
+    "assets": [
+      "workspace.js",
+      "workspace.css",
+      "connection-guide.js",
+      "terminal.js",
+      "xterm.js",
+      "xterm.css",
+      "addon-fit.js"
+    ],
+    "apiCrud": "passed",
+    "mountedPathLeakage": "none"
+  },
+  "standaloneUiStopped": true,
+  "serviceHealth": {
+    "status": "ok",
+    "protocolVersion": 1,
+    "cliStarted": true
+  },
+  "mountedUi": {
+    "path": "/sshdeck/",
+    "assets": [
+      "workspace.js",
+      "workspace.css",
+      "connection-guide.js",
+      "terminal.js",
+      "xterm.js",
+      "xterm.css",
+      "addon-fit.js"
+    ],
+    "apiCrud": "passed",
+    "cliDispatch": "passed",
+    "rootLeakage": "none"
+  },
+  "serviceCliStopped": true,
+  "port18792Free": true,
+  "port18793Free": true,
+  "cleanupPassed": true,
+  "finishedAt": "2026-11-20T02:41:32.416Z"
+}

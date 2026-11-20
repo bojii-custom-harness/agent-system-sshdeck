@@ -1,0 +1,21 @@
+{
+  "runId": "v4-rebuild-20261120-265769e-installed-content-compare-02",
+  "task": "Ticket07 V4 compare source, archive and installed files; allow only confirmed Windows npm shebang normalization",
+  "command": "node.exe",
+  "args": [
+    "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\compare-installed-package.cjs"
+  ],
+  "cwd": "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+  "node": "v24.20.0",
+  "timeoutMs": 60000,
+  "startedAt": "2026-11-20T02:44:23.194Z",
+  "finishedAt": "2026-11-20T02:44:23.762Z",
+  "timedOut": false,
+  "exitCode": 0,
+  "signal": null,
+  "spawnError": null,
+  "processId": 21676,
+  "treeKill": null,
+  "stdout": "installed-content-compare-02.stdout.txt",
+  "stderr": "installed-content-compare-02.stderr.txt"
+}

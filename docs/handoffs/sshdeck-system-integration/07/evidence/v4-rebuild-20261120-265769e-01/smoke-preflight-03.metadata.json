@@ -1,0 +1,21 @@
+{
+  "runId": "v4-rebuild-20261120-265769e-smoke-preflight-03",
+  "task": "Ticket07 V4 immediate pre-smoke source, package-lock, archive integrity and port check",
+  "command": "node.exe",
+  "args": [
+    "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\smoke-preflight.cjs"
+  ],
+  "cwd": "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+  "node": "v24.20.0",
+  "timeoutMs": 30000,
+  "startedAt": "2026-11-20T02:41:19.725Z",
+  "finishedAt": "2026-11-20T02:41:20.250Z",
+  "timedOut": false,
+  "exitCode": 0,
+  "signal": null,
+  "spawnError": null,
+  "processId": 5656,
+  "treeKill": null,
+  "stdout": "smoke-preflight-03.stdout.txt",
+  "stderr": "smoke-preflight-03.stderr.txt"
+}

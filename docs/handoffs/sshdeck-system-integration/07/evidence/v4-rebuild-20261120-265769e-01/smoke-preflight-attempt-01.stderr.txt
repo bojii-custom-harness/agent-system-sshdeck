@@ -1,0 +1,1 @@
+PowerShell ConvertFrom-Json rejected package-lock.json because of duplicate property name 'name'. The command exited before writing smoke-preflight.json or starting any package smoke process. The earlier port check completed with no listeners on 18792/18793.

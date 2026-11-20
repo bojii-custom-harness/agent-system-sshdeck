@@ -1,0 +1,27 @@
+node:assert:152
+  throw new AssertionError(obj);
+  ^
+
+AssertionError [ERR_ASSERTION]: installed size mismatch: bin/sshdeck.js
+
+115572 !== 115573
+
+    at C:\Users\andt3\desktop\agent-system\.worktree\sshdeck-system-integration-sshdeck-tickets-07\docs\handoffs\sshdeck-system-integration\07\evidence\v4-rebuild-20261120-265769e-01\compare-installed-package.cjs:30:10
+    at Array.map (<anonymous>)
+    at Object.<anonymous> (C:\Users\andt3\desktop\agent-system\.worktree\sshdeck-system-integration-sshdeck-tickets-07\docs\handoffs\sshdeck-system-integration\07\evidence\v4-rebuild-20261120-265769e-01\compare-installed-package.cjs:26:28)
+    at Module._compile (node:internal/modules/cjs/loader:1929:14)
+    at Object..js (node:internal/modules/cjs/loader:2060:10)
+    at Module.load (node:internal/modules/cjs/loader:1651:32)
+    at Module._load (node:internal/modules/cjs/loader:1443:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 115572,
+  expected: 115573,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.20.0

@@ -1,0 +1,23 @@
+{
+  "runId": "v4-rebuild-20261120-265769e-packlist-verify-01",
+  "task": "Ticket07 V4 actual npm packlist required-file verification",
+  "command": "node.exe",
+  "args": [
+    "scripts/verify-release-package.js",
+    "--packlist",
+    "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\packlist.json"
+  ],
+  "cwd": "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+  "node": "v24.20.0",
+  "timeoutMs": 30000,
+  "startedAt": "2026-11-20T02:35:37.609Z",
+  "finishedAt": "2026-11-20T02:35:37.667Z",
+  "timedOut": false,
+  "exitCode": 0,
+  "signal": null,
+  "spawnError": null,
+  "processId": 16824,
+  "treeKill": null,
+  "stdout": "packlist-verify.stdout.txt",
+  "stderr": "packlist-verify.stderr.txt"
+}

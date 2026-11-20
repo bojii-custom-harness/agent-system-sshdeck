@@ -1,0 +1,13 @@
+{
+    "recordedAt":  "2026-11-20T02:35:18.5072434Z",
+    "sourceCommit":  "265769e815d608d7bfc1ce7cb83fc46b74cbfd0c",
+    "input":  "npm-pack.stdout.txt",
+    "packageName":  "agent-system-sshdeck",
+    "version":  "0.1.3",
+    "entryCount":  15,
+    "unpackedSize":  293459,
+    "outputs":  [
+                    "packlist.json",
+                    "file-list.txt"
+                ]
+}

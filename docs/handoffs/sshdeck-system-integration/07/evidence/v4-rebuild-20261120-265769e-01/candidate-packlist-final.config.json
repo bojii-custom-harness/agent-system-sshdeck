@@ -1,0 +1,15 @@
+{
+    "runId":  "v4-rebuild-20261120-265769e-candidate-packlist-final-01",
+    "task":  "Ticket07 V4 validate the final candidate path packlist using the repo release-package verifier",
+    "command":  "node.exe",
+    "args":  [
+                 "scripts/verify-release-package.js",
+                 "--packlist",
+                 "docs/handoffs/sshdeck-system-integration/07/candidate/v0.1.3/packlist.json"
+             ],
+    "cwd":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+    "timeoutMs":  30000,
+    "stdoutPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\candidate-packlist-final.stdout.txt",
+    "stderrPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\candidate-packlist-final.stderr.txt",
+    "metadataPath":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07\\docs\\handoffs\\sshdeck-system-integration\\07\\evidence\\v4-rebuild-20261120-265769e-01\\candidate-packlist-final.metadata.json"
+}

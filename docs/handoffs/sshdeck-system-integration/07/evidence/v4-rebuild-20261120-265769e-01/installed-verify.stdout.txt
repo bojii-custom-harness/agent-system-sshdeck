@@ -1,0 +1,1 @@
+已安裝套件通過：agent-system-sshdeck@0.1.3，skill 與執行檔均可讀取

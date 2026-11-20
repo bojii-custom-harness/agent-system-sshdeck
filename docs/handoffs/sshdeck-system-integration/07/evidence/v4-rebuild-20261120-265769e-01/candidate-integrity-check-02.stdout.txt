@@ -1,0 +1,15 @@
+{
+  "result": "passed",
+  "sourceCommit": "265769e815d608d7bfc1ce7cb83fc46b74cbfd0c",
+  "package": "agent-system-sshdeck@0.1.3",
+  "archive": "agent-system-sshdeck-0.1.3.tgz",
+  "archiveSize": 75484,
+  "archiveSha256": "0db06a8fd40ff82bd27ce9200034a47ecffa1332fc1d59999f1196f520dadbc9",
+  "npmShasum": "d20bc29cf90a9e1aa23b374735890c7418a283ff",
+  "npmIntegrity": "sha512-I39td4U0g2O5MCaWq3hKezvZlBIgf/aEddQWAl1X5tnL5uJp6xx1jqZmtYH2+QZ2jru5yAevxMOcpASIZhXVCg==",
+  "entryCount": 15,
+  "unpackedSize": 293459,
+  "packlistMatchesEvidence": true,
+  "fileListMatchesPacklist": true,
+  "packageLockVersion": 3
+}

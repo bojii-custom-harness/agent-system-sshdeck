@@ -1,0 +1,14 @@
+{
+    "runId":  "v4-rebuild-20261120-265769e-package-cleanup-01",
+    "task":  "Remove only Ticket07 V4 unique isolated install prefix and npm pack staging after process/port checks",
+    "command":  "PowerShell cleanup script via shell tool",
+    "cwd":  "C:\\Users\\andt3\\desktop\\agent-system\\.worktree\\sshdeck-system-integration-sshdeck-tickets-07",
+    "timeoutMs":  15000,
+    "timedOut":  false,
+    "exitCode":  0,
+    "startedAt":  "2026-11-20T02:45:39.3039667Z",
+    "finishedAt":  "2026-11-20T02:45:41.2322185Z",
+    "stdout":  "cleanup.stdout.txt",
+    "stderr":  "cleanup.stderr.txt",
+    "cleanup":  "cleanup.json"
+}
