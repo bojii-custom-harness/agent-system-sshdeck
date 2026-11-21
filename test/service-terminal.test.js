@@ -37,6 +37,43 @@ function portAvailable(port) {
   });
 }
 
+function destroySocketAndWaitForClose(socket, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (status) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.removeListener('close', onClose);
+      resolve(status);
+    };
+    const onClose = () => finish('closed');
+    const timer = setTimeout(() => finish('timeout'), timeoutMs);
+    socket.once('close', onClose);
+    socket.destroy();
+  });
+}
+
+function closeServerWithDeadline(server, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish({ status: 'timeout' }), timeoutMs);
+    try {
+      server.close((error) => finish(error
+        ? { status: 'error', name: error.name, code: error.code }
+        : { status: 'closed' }));
+    } catch (error) {
+      finish({ status: 'error', name: error.name, code: error.code });
+    }
+  });
+}
+
 function socketUrl(base, route) {
   const url = new URL(route, base);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -988,11 +1025,19 @@ test('ticket07-review-https-ingress-proxies-adapter-terminal-websocket-to-privat
   const proxyConnections = new Set();
   const ingressSockets = new Set();
   const sshTargetSockets = new Set();
+  const cleanupDiagnostics = {
+    ingress: {
+      acceptedConnections: 0,
+      proxyConnectionsOpened: 0,
+      proxyConnectionCloseEvents: 0,
+    },
+  };
   let ingress;
   let service;
   let sshTarget;
   let ui;
   let adapterSocket;
+  let ingressClosing = false;
   let failure;
   let cleanup = {
     ui: 'not-started',
@@ -1011,13 +1056,19 @@ test('ticket07-review-https-ingress-proxies-adapter-terminal-websocket-to-privat
       response.end();
     });
     ingress.on('connection', (socket) => {
+      cleanupDiagnostics.ingress.acceptedConnections += 1;
       ingressSockets.add(socket);
       socket.once('close', () => ingressSockets.delete(socket));
     });
     let upstreamServicePort;
     ingress.on('upgrade', (request, clientSocket, head) => {
+      if (ingressClosing) {
+        clientSocket.destroy();
+        return;
+      }
       const upstream = net.connect({ host: '127.0.0.1', port: upstreamServicePort });
       proxyConnections.add(upstream);
+      cleanupDiagnostics.ingress.proxyConnectionsOpened += 1;
       const proxyObservation = {
         host: request.headers.host,
         origin: request.headers.origin,
@@ -1049,7 +1100,10 @@ test('ticket07-review-https-ingress-proxies-adapter-terminal-websocket-to-privat
         clientSocket.pipe(upstream);
       });
       upstream.once('error', () => clientSocket.destroy());
-      upstream.once('close', () => proxyConnections.delete(upstream));
+      upstream.once('close', () => {
+        proxyConnections.delete(upstream);
+        cleanupDiagnostics.ingress.proxyConnectionCloseEvents += 1;
+      });
       clientSocket.once('close', () => {
         if (!upstream.destroyed) upstream.destroy();
       });
@@ -1145,11 +1199,10 @@ test('ticket07-review-https-ingress-proxies-adapter-terminal-websocket-to-privat
     observations.status = 'failed';
     observations.failure = { name: error.name, message: error.message };
   } finally {
+    if (ingress) ingressClosing = true;
     if (adapterSocket?.socket && adapterSocket.socket.readyState !== WebSocket.CLOSED) {
       adapterSocket.socket.terminate();
     }
-    for (const socket of ingressSockets) socket.destroy();
-    for (const socket of proxyConnections) socket.destroy();
     observations.cleanupStage = 'close-ui-adapter';
     writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
     if (ui) {
@@ -1161,10 +1214,28 @@ test('ticket07-review-https-ingress-proxies-adapter-terminal-websocket-to-privat
     observations.cleanupStage = 'close-https-ingress';
     writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
     if (ingress) {
-      try {
-        await new Promise((resolve, reject) => ingress.close((error) => error ? reject(error) : resolve()));
-        cleanup.ingress = proxyConnections.size === 0 ? 'passed' : 'failed';
-      } catch { cleanup.ingress = 'failed'; }
+      const ingressSocketsToClose = [...ingressSockets];
+      const proxyConnectionsToClose = [...proxyConnections];
+      cleanupDiagnostics.ingress.ingressSocketsBeforeDestroy = ingressSocketsToClose.length;
+      cleanupDiagnostics.ingress.proxyConnectionsBeforeDestroy = proxyConnectionsToClose.length;
+      const serverCloseResult = closeServerWithDeadline(ingress);
+      const [serverClose, ingressSocketClosures, proxyConnectionClosures] = await Promise.all([
+        serverCloseResult,
+        Promise.all(ingressSocketsToClose.map((socket) => destroySocketAndWaitForClose(socket))),
+        Promise.all(proxyConnectionsToClose.map((socket) => destroySocketAndWaitForClose(socket))),
+      ]);
+      cleanupDiagnostics.ingress.serverClose = serverClose;
+      cleanupDiagnostics.ingress.ingressSocketClosures = ingressSocketClosures;
+      cleanupDiagnostics.ingress.proxyConnectionClosures = proxyConnectionClosures;
+      cleanupDiagnostics.ingress.ingressSocketsRemaining = ingressSockets.size;
+      cleanupDiagnostics.ingress.proxyConnectionsRemaining = proxyConnections.size;
+      cleanup.ingress = serverClose.status === 'closed'
+        && ingressSocketClosures.every((status) => status === 'closed')
+        && proxyConnectionClosures.every((status) => status === 'closed')
+        && ingressSockets.size === 0
+        && proxyConnections.size === 0
+        ? 'passed'
+        : 'failed';
     }
     observations.cleanupStage = 'close-service';
     writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
@@ -1188,6 +1259,7 @@ test('ticket07-review-https-ingress-proxies-adapter-terminal-websocket-to-privat
     fs.rmSync(directory, { recursive: true, force: true });
     cleanup.directory = fs.existsSync(directory) ? 'failed' : 'passed';
     observations.cleanup = cleanup;
+    observations.cleanupDiagnostics = cleanupDiagnostics;
     delete observations.cleanupStage;
     writeOptionalEvidence(evidenceFile, observations, { overwrite: true });
   }
@@ -1198,7 +1270,7 @@ test('ticket07-review-https-ingress-proxies-adapter-terminal-websocket-to-privat
     service: 'passed',
     sshTarget: 'passed',
     directory: 'passed',
-  });
+  }, `cleanup diagnostics: ${JSON.stringify(cleanupDiagnostics)}`);
 });
 
 test('真實 Chromium 經 UI adapter/service WebSocket 操作隔離 OpenSSH PTY，並驗證取消、lock、shutdown 與 resize', {
