@@ -13,7 +13,11 @@ function sha256(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
-function createUbuntuWebtopFixture({ runId, evidenceFile } = {}) {
+function createUbuntuWebtopFixture({
+  runId,
+  evidenceFile,
+  spawnSyncProcess = spawnSync,
+} = {}) {
   if (process.platform !== 'win32') {
     throw new Error('Webtop fixture 只支援從 Windows runner 操作 Ubuntu WSL');
   }
@@ -54,7 +58,7 @@ function createUbuntuWebtopFixture({ runId, evidenceFile } = {}) {
     acceptedStatuses = [0],
   } = {}) {
     const started = Date.now();
-    const result = spawnSync('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--', ...args], {
+    const result = spawnSyncProcess('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--', ...args], {
       encoding: 'buffer',
       windowsHide: true,
       timeout: timeoutMs,
@@ -112,15 +116,20 @@ function createUbuntuWebtopFixture({ runId, evidenceFile } = {}) {
       }
     }
     if (!containerId) return false;
-    const actualId = runWsl(['docker', 'inspect', '--format', '{{.Id}}', containerName], {
+    const presentId = runWsl([
+      'docker', 'container', 'ls', '-a', '--no-trunc',
+      '--filter', `id=${containerId}`, '--format', '{{.ID}}',
+    ], { label: 'verify-container-present' });
+    if (!presentId) return false;
+    const actualId = runWsl(['docker', 'inspect', '--format', '{{.Id}}', containerId], {
       label: 'verify-container-id',
     });
     const actualLabels = runWsl([
       'docker', 'inspect', '--format',
       `{{index .Config.Labels "${TICKET_LABEL}"}} {{index .Config.Labels "${RUN_LABEL}"}}`,
-      containerName,
+      containerId,
     ], { label: 'verify-container-labels' });
-    if (actualId !== containerId || actualLabels !== `03 ${owner}`) {
+    if (presentId !== containerId || actualId !== containerId || actualLabels !== `03 ${owner}`) {
       throw new Error('拒絕清理：container ID 或 task ownership labels 不符');
     }
     return true;
@@ -138,15 +147,20 @@ function createUbuntuWebtopFixture({ runId, evidenceFile } = {}) {
       }
     }
     if (!networkId) return false;
-    const actualId = runWsl(['docker', 'network', 'inspect', '--format', '{{.Id}}', networkName], {
+    const presentId = runWsl([
+      'docker', 'network', 'ls', '--no-trunc',
+      '--filter', `id=${networkId}`, '--format', '{{.ID}}',
+    ], { label: 'verify-network-present' });
+    if (!presentId) return false;
+    const actualId = runWsl(['docker', 'network', 'inspect', '--format', '{{.Id}}', networkId], {
       label: 'verify-network-id',
     });
     const actualLabels = runWsl([
       'docker', 'network', 'inspect', '--format',
       `{{index .Labels "${TICKET_LABEL}"}} {{index .Labels "${RUN_LABEL}"}}`,
-      networkName,
+      networkId,
     ], { label: 'verify-network-labels' });
-    if (actualId !== networkId || actualLabels !== `03 ${owner}`) {
+    if (presentId !== networkId || actualId !== networkId || actualLabels !== `03 ${owner}`) {
       throw new Error('拒絕清理：network ID 或 task ownership labels 不符');
     }
     return true;
@@ -156,7 +170,7 @@ function createUbuntuWebtopFixture({ runId, evidenceFile } = {}) {
     if (containerId || containerCreateAttempted) {
       try {
         if (assertOwnedContainer()) {
-          runWsl(['docker', 'rm', '--force', containerName], {
+          runWsl(['docker', 'rm', '--force', containerId], {
             label: 'remove-task-container',
             timeoutMs: 30_000,
           });
@@ -166,8 +180,10 @@ function createUbuntuWebtopFixture({ runId, evidenceFile } = {}) {
           ], { label: 'verify-container-removed' });
           if (remaining) throw new Error('task-owned container 清理後仍存在');
           evidence.cleanup.containerRemoved = true;
+          delete evidence.cleanup.containerError;
         } else {
           evidence.cleanup.containerRemoved = true;
+          delete evidence.cleanup.containerError;
         }
       } catch (error) {
         errors.push(error);
@@ -178,7 +194,7 @@ function createUbuntuWebtopFixture({ runId, evidenceFile } = {}) {
     if (networkId || networkCreateAttempted) {
       try {
         if (assertOwnedNetwork()) {
-          runWsl(['docker', 'network', 'rm', networkName], {
+          runWsl(['docker', 'network', 'rm', networkId], {
             label: 'remove-task-network',
             timeoutMs: 20_000,
           });
@@ -188,8 +204,10 @@ function createUbuntuWebtopFixture({ runId, evidenceFile } = {}) {
           ], { label: 'verify-network-removed' });
           if (remaining) throw new Error('task-owned network 清理後仍存在');
           evidence.cleanup.networkRemoved = true;
+          delete evidence.cleanup.networkError;
         } else {
           evidence.cleanup.networkRemoved = true;
+          delete evidence.cleanup.networkError;
         }
       } catch (error) {
         errors.push(error);
@@ -270,11 +288,22 @@ function createUbuntuWebtopFixture({ runId, evidenceFile } = {}) {
   function cleanup() {
     if (cleaned) return;
     const errors = [];
-    if (dockerWasActive === true || dockerStartedByFixture) {
+    const resourcesWereRemoved = evidence.cleanup.containerRemoved === true
+      && evidence.cleanup.networkRemoved === true;
+    const daemonWasRestored = dockerStartedByFixture
+      && resourcesWereRemoved
+      && evidence.cleanup.dockerDaemon === 'inactive';
+    if (!daemonWasRestored && (dockerWasActive === true || dockerStartedByFixture)) {
       cleanupOwnedResources(errors);
-      stopDockerIfRestoredToEmptyBaseline(errors);
+      if (dockerWasActive === true) {
+        stopDockerIfRestoredToEmptyBaseline(errors);
+      } else if (errors.length > 0) {
+        evidence.cleanup.dockerDaemon = 'kept-active-for-incomplete-cleanup';
+      } else {
+        stopDockerIfRestoredToEmptyBaseline(errors);
+      }
     } else {
-      evidence.cleanup.dockerDaemon = 'not-started-by-fixture';
+      if (!daemonWasRestored) evidence.cleanup.dockerDaemon = 'not-started-by-fixture';
     }
     evidence.cleanup.status = errors.length ? 'incomplete' : 'passed';
     evidence.cleanup.errors = errors.map((error) => error.message);
@@ -487,8 +516,8 @@ function createUbuntuWebtopFixture({ runId, evidenceFile } = {}) {
       targetIp,
       async cleanup() {
         if (fixtureCleaned) return;
-        fixtureCleaned = true;
         cleanup();
+        fixtureCleaned = true;
       },
     };
   } catch (error) {

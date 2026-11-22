@@ -889,6 +889,23 @@ test('Ticket 03 真實 Ubuntu tunnel 經精確 PermitOpen 存取無 host-port We
     assert.equal(await waitForNoEstablishedConnection(sshFixture, webtopFixture.targetIp, 3001), true,
       'grant revoke 必須關閉真實 SSH direct-tcpip channel');
     evidence.lifecycle.revokeClosedActiveStream = true;
+    assert.deepEqual(sshFixture.establishedConnections(webtopFixture.targetIp, 3001), [],
+      '撤銷完成後不得保留通往真實 container-private endpoint 的 SSH channel');
+    const revokedTargetRetry = await openSocket(tunnelUrl, env.SSHDECK_TUNNEL_TOKEN);
+    sockets.push(revokedTargetRetry.socket);
+    assert.equal(revokedTargetRetry.status, 101);
+    assert.deepEqual(sshFixture.establishedConnections(webtopFixture.targetIp, 3001), [],
+      '重開已撤銷 target 前不得有新的 container-private SSH channel');
+    await sendAndExpectError(
+      revokedTargetRetry.socket,
+      JSON.stringify({ type: 'open', targetId: revocableGrantId }),
+      'TARGET_NOT_AUTHORIZED',
+      tokenSentinels,
+    );
+    assert.deepEqual(sshFixture.establishedConnections(webtopFixture.targetIp, 3001), [],
+      '重用已撤銷 targetId 必須在建立 direct-tcpip channel 前被拒絕');
+    evidence.lifecycle.revokedTargetCannotReopen = true;
+    evidence.lifecycle.revokedTargetReopenDidNotConnectToContainer = true;
 
     const cancelGrantId = await createGrant(alias, '127.0.0.1', echoTargetPort);
     const cancelTunnel = await openGrantedTunnel(tunnelUrl, cancelGrantId);

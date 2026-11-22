@@ -114,7 +114,7 @@ Service instance 提供僅供 server-side tunnel handler 使用的 `subscribeTun
 
 通知前 service 先從可授權狀態移除所有受影響 grants；subscriber 執行時再次 lookup 已撤銷的 ID 必須失敗。相關操作會等待 async subscribers 完成後才回成功；尤其 DELETE 只會在通知完成後回 `204`。Subscriber rejection 不會恢復 grant，也不會回報操作成功；service 會移除失敗的 subscriber，並以 `502 TUNNEL_INVALIDATION_FAILED` 回報，不將 subscriber 的錯誤內容帶入回應。Service shutdown 亦會先撤銷並通知，再完成關閉；一般 service restart 不保存 grants 或 subscriptions。
 
-此 subscription 是後續 tunnel handler 可等待連線清理的共用 lifecycle seam，不代表本版本已建立 WebSocket tunnel、SSH `direct-tcpip` channel 或 TCP stream；active stream 的建立、取消與關閉仍由後續 tunnel endpoint 契約負責。
+此 subscription 由目前的 TCP tunnel WebSocket handler 用於 grant lifecycle：grant 失效時會關閉該 grant 對應的 active SSH `direct-tcpip` stream；service 會等待非同步 subscriber 完成後才回報撤銷、lock、host/key 更新或 shutdown 成功。它是 service 內部機制，不是額外 HTTP route；WebSocket tunnel endpoint 與 stream 的建立、取消及關閉契約如上所述。
 
 ## 串流、取消與錯誤
 

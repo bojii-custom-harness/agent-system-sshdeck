@@ -11,6 +11,8 @@ const { main, startUi } = require('../bin/sshdeck.js');
 const { startService } = require('../lib/service-server');
 const { applyTicket03TokenSentinels, createServiceEnv } = require('./helpers/service-test-utils');
 
+const browserModule = process.env.SSHDECK_PLAYWRIGHT_MODULE;
+
 async function request(server, route, { method = 'GET', body } = {}) {
   const response = await fetch(`${new URL(server.url).origin}${route}`, {
     method,
@@ -252,6 +254,259 @@ test('service UI adapter 以 server-side token 消費 API 並安全處理 CRUD�
     }
     assert.equal(serviceRequests.some((route) => route.includes('?')), false, 'UI adapter 不得把 credential 放入 service query');
   } finally {
+    if (ui) await new Promise((resolve) => ui.close(resolve));
+    if (service) await service.closeAsync();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('真實 Chromium 不接觸 server-side token，也無法經 UI adapter 呼叫 tunnel 管理路徑', {
+  skip: browserModule ? false : '需設定 SSHDECK_PLAYWRIGHT_MODULE 為 Playwright 模組絕對路徑。',
+  timeout: 60_000,
+}, async () => {
+  const { chromium } = require(browserModule);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sshdeck-ticket03-browser-security-'));
+  const env = createServiceEnv(path.join(directory, 'service-home'));
+  const tokenSentinels = applyTicket03TokenSentinels(env);
+  const serviceRequests = [];
+  const serviceUpgrades = [];
+  const uiLogs = [];
+  const browserRequests = [];
+  const browserResponses = [];
+  const browserLogs = [];
+  const browserSocketRequests = [];
+  const browserSocketResponses = [];
+  const browserSocketFrames = [];
+  const browserSocketHeaders = [];
+  const uiWebSocketResponses = [];
+  const uiUpgrades = [];
+  let service;
+  let ui;
+  let browser;
+  let context;
+  let cdp;
+
+  function assertNoSentinels(value, surface) {
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    for (const sentinel of tokenSentinels) {
+      assert.equal(text.includes(sentinel), false, `${surface} 不得包含 server-side token sentinel`);
+    }
+  }
+
+  function isTunnelManagementRoute(route) {
+    const pathname = new URL(route, 'http://127.0.0.1').pathname;
+    return /^\/v1\/hosts\/[^/]+\/(?:tcp-tunnel|tcp-tunnel-targets(?:\/[^/]+)?)$/.test(pathname);
+  }
+
+  try {
+    service = await startService({ env, port: 0 });
+    service.on('request', (request) => {
+      serviceRequests.push({ method: request.method, url: request.url });
+    });
+    service.on('upgrade', (request) => {
+      serviceUpgrades.push({ method: request.method, url: request.url });
+    });
+
+    const uiEnv = {
+      SSHDECK_MODE: 'service',
+      SSHDECK_BASE_PATH: '/sshdeck',
+      SSHDECK_SERVICE_URL: service.url,
+      SSHDECK_SERVICE_TOKEN: env.SSHDECK_SERVICE_TOKEN,
+      SSHDECK_UI_TOKEN: env.SSHDECK_UI_TOKEN,
+    };
+    ui = await startUi({
+      mode: 'service',
+      env: uiEnv,
+      port: 0,
+      openBrowser: async () => {},
+      log: (line) => uiLogs.push(String(line)),
+    });
+    ui.on('upgrade', (request) => {
+      uiUpgrades.push({ method: request.method, url: request.url });
+    });
+    ui.prependListener('upgrade', (_request, socket) => {
+      const originalEnd = socket.end;
+      socket.end = function captureWebSocketRejection(response, ...args) {
+        if (Buffer.isBuffer(response) || typeof response === 'string') {
+          uiWebSocketResponses.push(Buffer.from(response).toString('utf8'));
+        }
+        return originalEnd.call(this, response, ...args);
+      };
+    });
+
+    browser = await chromium.launch({ headless: true, timeout: 10_000 });
+    context = await browser.newContext();
+    const page = await context.newPage();
+    page.setDefaultTimeout(10_000);
+    page.on('request', (request) => {
+      browserRequests.push({
+        method: request.method(),
+        url: request.url(),
+        postData: request.postData(),
+        headers: request.headers(),
+      });
+    });
+    page.on('response', (response) => {
+      const record = {
+        url: response.url(),
+        status: response.status(),
+        headers: response.headers(),
+        body: '',
+      };
+      browserResponses.push(record);
+      record.bodyPromise = response.text()
+        .then((body) => { record.body = body; })
+        .catch(() => {});
+    });
+    page.on('console', (message) => {
+      browserLogs.push(`${message.type()}:${message.text()}`);
+    });
+    page.on('pageerror', (error) => browserLogs.push(error.message));
+    page.on('requestfailed', (request) => {
+      browserLogs.push(`${request.method()}:${request.url()}:${request.failure()?.errorText || 'request-failed'}`);
+    });
+    page.on('websocket', (webSocket) => {
+      browserSocketRequests.push(webSocket.url());
+      webSocket.on('framesent', (frame) => browserSocketFrames.push(frame.payload));
+      webSocket.on('framereceived', (frame) => browserSocketFrames.push(frame.payload));
+      webSocket.on('socketerror', (message) => browserLogs.push(String(message)));
+    });
+    cdp = await context.newCDPSession(page);
+    await cdp.send('Network.enable');
+    cdp.on('Network.requestWillBeSent', (event) => {
+      if (event.type === 'WebSocket') browserSocketRequests.push(event.request.url);
+    });
+    cdp.on('Network.webSocketWillSendHandshakeRequest', (event) => {
+      browserSocketHeaders.push(JSON.stringify(event.request.headers || {}));
+    });
+    cdp.on('Network.webSocketHandshakeResponseReceived', (event) => {
+      browserSocketResponses.push({
+        status: event.response.status,
+        statusText: event.response.statusText,
+        headers: event.response.headers,
+      });
+    });
+    cdp.on('Network.webSocketFrameSent', (event) => browserSocketFrames.push(event.response.payloadData));
+    cdp.on('Network.webSocketFrameReceived', (event) => browserSocketFrames.push(event.response.payloadData));
+
+    await page.goto(ui.url);
+    await page.locator('#hosts-loading').waitFor({ state: 'hidden' });
+    assert.equal(new URL(page.url()).pathname, '/sshdeck/');
+
+    const forbiddenRoutes = [
+      {
+        method: 'POST',
+        path: '/sshdeck/api/hosts/browser-target/tcp-tunnel-targets',
+        body: { targetHost: '192.0.2.10', targetPort: 3001 },
+      },
+      {
+        method: 'DELETE',
+        path: '/sshdeck/api/hosts/browser-target/tcp-tunnel-targets/opaque-id',
+      },
+      {
+        method: 'POST',
+        path: '/sshdeck/api/hosts/browser-target/tcp-tunnel',
+        body: { targetId: 'opaque-id' },
+      },
+    ];
+    const routeResults = await page.evaluate(async (routes) => {
+      const results = [];
+      for (const route of routes) {
+        const response = await fetch(route.path, {
+          method: route.method,
+          headers: route.body ? { 'content-type': 'application/json' } : {},
+          ...(route.body ? { body: JSON.stringify(route.body) } : {}),
+        });
+        results.push({
+          method: route.method,
+          url: response.url,
+          status: response.status,
+          body: await response.text(),
+        });
+      }
+      return results;
+    }, forbiddenRoutes);
+    assert.deepEqual(routeResults.map((result) => result.status), [404, 404, 404],
+      'Chromium 發出的 grant/tunnel 管理要求必須由 UI adapter 拒絕');
+
+    const webSocketOutcome = await page.evaluate(() => new Promise((resolve) => {
+      const socketUrl = new URL('/sshdeck/v1/hosts/browser-target/tcp-tunnel', location.href);
+      socketUrl.protocol = socketUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+      const socket = new WebSocket(socketUrl.href);
+      let settled = false;
+      const finish = (outcome) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(outcome);
+      };
+      const timer = setTimeout(() => {
+        try { socket.close(); } catch {}
+        finish('timeout');
+      }, 5000);
+      socket.addEventListener('open', () => {
+        try { socket.close(); } catch {}
+        finish('opened');
+      }, { once: true });
+      socket.addEventListener('error', () => finish('rejected'), { once: true });
+    }));
+    assert.equal(webSocketOutcome, 'rejected',
+      'Chromium 對 UI adapter tunnel WebSocket 路徑必須收到拒絕');
+    assert.ok(browserSocketRequests.some((request) =>
+      request.includes('/sshdeck/v1/hosts/browser-target/tcp-tunnel')),
+    'Chromium 必須實際送出 tunnel WebSocket 要求至 UI adapter');
+    assert.ok(uiUpgrades.some((request) =>
+      request.url === '/sshdeck/v1/hosts/browser-target/tcp-tunnel'),
+    'UI adapter 必須實際收到 Chromium 的 tunnel WebSocket upgrade');
+    assert.ok(uiWebSocketResponses.some((response) =>
+      response.startsWith('HTTP/1.1 403 Forbidden\r\n')),
+    'UI adapter 必須將非 shell WebSocket upgrade 以拒絕回應送回 Chromium');
+
+    await page.waitForTimeout(50);
+    await Promise.all(browserResponses.map((response) => response.bodyPromise));
+    const browserState = await page.evaluate(() => JSON.stringify({
+      href: location.href,
+      search: location.search,
+      hash: location.hash,
+      html: document.documentElement.outerHTML,
+      text: document.documentElement.innerText,
+      cookie: document.cookie,
+      localStorage: Object.keys(localStorage).map((key) => [key, localStorage.getItem(key)]),
+      sessionStorage: Object.keys(sessionStorage).map((key) => [key, sessionStorage.getItem(key)]),
+    }));
+    const browserSurface = {
+      uiUrl: ui.url,
+      serviceUrl: service.url,
+      browserState,
+      requests: browserRequests,
+      responses: browserResponses.map(({ bodyPromise, ...response }) => response),
+      responseBodies: browserResponses.map((response) => response.body),
+      logs: browserLogs,
+      uiLogs,
+      socketRequests: browserSocketRequests,
+      socketHeaders: browserSocketHeaders,
+      socketResponses: browserSocketResponses,
+      webSocketResponses: uiWebSocketResponses,
+      socketFrames: browserSocketFrames,
+      uiUpgrades,
+    };
+    assertNoSentinels(browserSurface, 'Chromium URL、query、DOM/storage、HTTP/WebSocket、bundle 與 logs');
+    assertNoSentinels(serviceRequests, 'service request URL/query');
+    assertNoSentinels(serviceUpgrades, 'service WebSocket URL/query');
+    assert.equal(browserRequests.some((request) => request.url.includes('?')
+      && tokenSentinels.some((sentinel) => request.url.includes(sentinel))), false);
+    assert.equal(browserRequests.some((request) => Object.values(request.headers)
+      .some((value) => tokenSentinels.some((sentinel) => value.includes(sentinel)))), false,
+    'Node test 的 server-side token 不得進入 Chromium request headers');
+    assert.equal(serviceRequests.some((request) => isTunnelManagementRoute(request.url)), false,
+      'UI adapter 不得將 grant/tunnel 管理要求送至 service HTTP API');
+    assert.equal(serviceUpgrades.some((request) => isTunnelManagementRoute(request.url)), false,
+      'UI adapter 不得將 tunnel WebSocket upgrade 送至 service');
+    assert.equal(Object.hasOwn(uiEnv, 'SSHDECK_TUNNEL_TOKEN'), false,
+      'UI adapter 設定不應包含 tunnel token');
+  } finally {
+    if (cdp) await cdp.detach().catch(() => {});
+    if (browser) await browser.close();
     if (ui) await new Promise((resolve) => ui.close(resolve));
     if (service) await service.closeAsync();
     fs.rmSync(directory, { recursive: true, force: true });

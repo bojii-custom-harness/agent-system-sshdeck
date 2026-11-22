@@ -40,6 +40,11 @@ const requiredDocumentation = {
     '不授權修改其他 repo 的 deployment pin',
   ],
 };
+const forbiddenDocumentation = {
+  'docs/service-api.md': [
+    '不代表本版本已建立 WebSocket tunnel',
+  ],
+};
 
 function readArgument(name) {
   const index = process.argv.indexOf(name);
@@ -67,6 +72,12 @@ function verifyDocumentation(root) {
     const content = fs.readFileSync(path.join(root, filePath), 'utf8');
     for (const phrase of phrases) {
       assert.ok(content.includes(phrase), `${filePath} 缺少 service 契約：${phrase}`);
+    }
+  }
+  for (const [filePath, phrases] of Object.entries(forbiddenDocumentation)) {
+    const content = fs.readFileSync(path.join(root, filePath), 'utf8');
+    for (const phrase of phrases) {
+      assert.equal(content.includes(phrase), false, `${filePath} 含過時 service 契約：${phrase}`);
     }
   }
 }
