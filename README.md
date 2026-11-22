@@ -77,7 +77,7 @@ npm test
 
 Linux shell 可用相同變數名稱執行 `export SSHDECK_TEST_SSH_HOST=...` 等指令；macOS 的程式碼相容性路徑保留，但本輪不執行測試。完整測試 fixture 帳號、權限與各平台的執行證據詳見 `.scratch/sshdeck/issues/07-cross-platform-acceptance.md` 及前置票單。
 
-SSHDeck service protocol 與 headless CLI 的版本化 API、加密保存、認證、信任、鎖定及串流契約見 [`docs/service-api.md`](docs/service-api.md)。服務入口是 `sshdeck service start`；服務與 standalone 資料根目錄分離。CLI 需明確設定 `SSHDECK_MODE=service`、`SSHDECK_SERVICE_URL`、`SSHDECK_SERVICE_TOKEN`，錯誤時不會提示密語或回退到 standalone。服務啟動另需絕對路徑 `SSHDECK_SERVICE_HOME`、獨立 `SSHDECK_ENCRYPTION_KEY`，以及不同的 server-side `SSHDECK_UI_TOKEN`。
+SSHDeck service protocol 與 headless CLI 的版本化 API、加密保存、認證、信任、鎖定及串流契約見 [`docs/service-api.md`](docs/service-api.md)。服務入口是 `sshdeck service start`；服務與 standalone 資料根目錄分離。CLI 需明確設定 `SSHDECK_MODE=service`、`SSHDECK_SERVICE_URL`、`SSHDECK_SERVICE_TOKEN`，錯誤時不會提示密語或回退到 standalone。服務啟動另需絕對路徑 `SSHDECK_SERVICE_HOME`、獨立 `SSHDECK_ENCRYPTION_KEY`、不同的 server-side `SSHDECK_UI_TOKEN`，以及至少 32 字元、與其他憑證及加密金鑰相異的 server-side `SSHDECK_TUNNEL_TOKEN`。
 
 ### 服務模式管理介面
 

@@ -16,6 +16,7 @@ sshdeck service start [--host 127.0.0.1] [--port 8788]
 | `SSHDECK_ENCRYPTION_KEY` | 獨立的 32-byte AES-256-GCM 金鑰，以恰好 64 個十六進位字元提供。不得與資料卷同置、不得使用 `EXTENSION_SECRET_KEY`。 |
 | `SSHDECK_SERVICE_TOKEN` | main／headless CLI 專用 Bearer token，至少 32 個字元。 |
 | `SSHDECK_UI_TOKEN` | UI server-side adapter 專用 Bearer token，至少 32 個字元且不得與 CLI token 相同；不得傳給瀏覽器。UI 登入憑證與此 token 各自獨立。 |
+| `SSHDECK_TUNNEL_TOKEN` | tunnel endpoint 專用 server-side Bearer token，至少 32 個字元；必須與 CLI token、UI token 及 encryption key 各自不同。不得傳給 browser 或 Bot。 |
 
 `SSHDECK_SERVICE_TERMINAL_ORIGIN` 是選填設定，只影響 terminal WebSocket 的 Host／Origin 檢查。當 UI adapter 經由 HTTPS ingress 連到 service，而對外 authority 與 service 的內部 listener 不同時，將它設為精確、canonical 的 HTTP(S) origin，例如 `https://sshdeck.example`；非預設 port 必須明列，例如 `https://sshdeck.example:8443`。值不可含帳密、路徑、query 或 fragment。未設定時，terminal WebSocket 仍須符合 service listener 的既有 Host／Origin 與有效 port 檢查。
 
@@ -38,7 +39,7 @@ SSHDECK_SERVICE_TERMINAL_ORIGIN=https://sshdeck.example
 Authorization: Bearer <server-side-token>
 ```
 
-認證比對使用 constant-time byte comparison。token 不可放在 query、URL、命令列、瀏覽器程式碼或 log。
+認證比對使用 constant-time byte comparison。CLI、UI、tunnel token 不可放在 query、URL、命令列、response、瀏覽器程式碼或一般 log。Tunnel role 不授予既有 host／key 查詢或管理、exec、PTY、lock／unlock 或 target grant 管理權限。
 
 | 路徑 | 權限 | 回應與用途 |
 | --- | --- | --- |
@@ -59,6 +60,8 @@ Authorization: Bearer <server-side-token>
 | `POST /v1/hosts/{alias}/exec` | CLI 或 UI token | JSON `{ "command": "..." }`，以 NDJSON 回傳單次遠端命令串流。 |
 | `GET /v1/hosts/{alias}/terminal` | 僅 UI token | WebSocket upgrade，建立該受管 alias 的互動 SSH PTY；拒絕 CLI token、未知主機及手動鎖定狀態。 |
 | `POST /v1/lock`、`POST /v1/unlock` | UI token | 手動鎖定／明確解鎖所有服務金鑰。解鎖只在服務端完成。 |
+| `POST /v1/hosts/{alias}/tcp-tunnel-targets` | 僅 UI token | 為單一受管 alias 建立暫存、精確 TCP target grant；不由 UI adapter 代理。 |
+| `DELETE /v1/hosts/{alias}/tcp-tunnel-targets/{targetId}` | 僅 UI token | 撤銷該 alias 的 target grant；grant 已不存在時仍回 `204`。 |
 
 `expectedFingerprint` 僅能在先取得 challenge 並經可信管道人工核對後，傳入 check／exec。服務會在同一 SSH 握手中確認目前 fingerprint 與核對值完全相同才記錄信任；不相符仍拒絕。CLI 的明確核對入口為：
 
@@ -67,6 +70,22 @@ SSHDECK_MODE=service sshdeck host trust <alias> --fingerprint SHA256:<人工核�
 ```
 
 此命令不互動、不接受自動信任；未核對的 host key 會阻擋遠端命令。
+
+## TCP tunnel target grant
+
+Target grant 管理由受信任的 server-side 呼叫端直接使用 `SSHDECK_UI_TOKEN`；CLI 與 tunnel token 均遭拒。UI adapter 不轉送或公開 grant routes，瀏覽器呼叫其對應路徑會收到 `404`。
+
+建立要求只接受下列 JSON 欄位，不接受額外欄位：
+
+```json
+{ "targetHost": "192.0.2.10", "targetPort": 3001 }
+```
+
+`targetHost` 必須是 IPv4 或 IPv6 literal；hostname、wildcard（包含 `0.0.0.0` 與 `::`）、CIDR 及其他非 literal 值均以 `400 INVALID_TARGET` 拒絕。`targetPort` 必須是 JSON integer，範圍為 `1`–`65535`。Host 必須存在、關聯服務管理的 key、具有已完成的 fingerprint trust，且 service 未鎖定；未知 alias 回 `404 HOST_NOT_FOUND`、缺 key 回 `428 KEY_REQUIRED`、未 trust 回 `409 HOST_TRUST_REQUIRED`、locked service 回 `423 SERVICE_LOCKED`。
+
+成功建立回 `201` 與 `{ "targetId": "..." }`。ID 使用 CSPRNG 產生，至少具 128-bit 隨機熵；grant 綁定單一 host alias、該 host/key profile 與已信任的 host fingerprint，只保存在 service 記憶體，不寫入持久資料，也沒有列舉 API。Target grant 不包含或回傳 SSH private key／passphrase。
+
+DELETE 成功或指定 alias 下的 grant 已不存在時均回 `204`。若同一 ID 是其他 alias 的 grant，要求仍以 `204` 冪等回覆，但不會撤銷另一 alias 的 grant。Service restart、lock、host profile／關聯 managed-key profile 更新或 host removal，以及 managed key create/import/link/unlink/removal，會清除受影響 grants；舊 ID 不會因 host/key 重新新增、關聯或重新 trust 而復活。Tunnel stream 的建立與生命週期由後續 tunnel endpoint 契約負責；本 API 不建立 WebSocket、SSH channel 或 TCP stream。
 
 ## 串流、取消與錯誤
 

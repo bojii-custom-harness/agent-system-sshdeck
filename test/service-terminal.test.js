@@ -428,6 +428,12 @@ test('service terminal WebSocket 僅接受 UI token 並拒絕非法來源、未�
     });
     assert.equal(cli.status, 403, 'CLI token 不得建立終端');
     deniedResponses.push(cli.body);
+    const tunnel = await openSocket(serviceSocket('unknown'), {
+      origin: validOrigin,
+      headers: { authorization: `Bearer ${env.SSHDECK_TUNNEL_TOKEN}` },
+    });
+    assert.equal(tunnel.status, 403, 'tunnel token 不得建立既有 SSH PTY 終端');
+    deniedResponses.push(tunnel.body);
     const badOrigin = await openSocket(serviceSocket('unknown'), {
       origin: 'http://attacker.invalid',
       headers: { authorization: `Bearer ${env.SSHDECK_UI_TOKEN}` },
@@ -551,10 +557,15 @@ test('service terminal WebSocket 僅接受 UI token 並拒絕非法來源、未�
       (await fetch(new URL(`assets/${asset}`, ui.url))).text()
     )));
     const browserMaterial = [html, ...await Promise.all(assets)].join('\n');
-    for (const secret of [env.SSHDECK_UI_TOKEN, env.SSHDECK_SERVICE_TOKEN, env.SSHDECK_ENCRYPTION_KEY]) {
-      assert.equal(browserMaterial.includes(secret), false, 'token 與加密 key 不得進入瀏覽器資產');
-      assert.equal(logs.join('\n').includes(secret), false, 'token 與加密 key 不得進入 UI log');
-      assert.equal(publicResponses.includes(secret), false, 'token 與加密 key 不得進入一般或拒絕回應');
+    for (const secret of [
+      env.SSHDECK_UI_TOKEN,
+      env.SSHDECK_SERVICE_TOKEN,
+      env.SSHDECK_TUNNEL_TOKEN,
+      env.SSHDECK_ENCRYPTION_KEY,
+    ]) {
+      assert.equal(browserMaterial.includes(secret), false, 'server-side token 與加密 key 不得進入瀏覽器資產');
+      assert.equal(logs.join('\n').includes(secret), false, 'server-side token 與加密 key 不得進入 UI log');
+      assert.equal(publicResponses.includes(secret), false, 'server-side token 與加密 key 不得進入一般或拒絕回應');
     }
     assert.equal(publicResponses.includes(wrongToken), false, '錯誤 token 不得被 service 回應');
   } finally {

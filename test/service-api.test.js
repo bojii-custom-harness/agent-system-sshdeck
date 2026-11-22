@@ -188,6 +188,7 @@ test('service API 加密憑證、雙重認證、鎖定／重啟與損壞資料 f
     assert.equal(responses.includes(env.SSHDECK_ENCRYPTION_KEY), false, 'API 不得回傳加密金鑰');
     assert.equal(responses.includes(env.SSHDECK_SERVICE_TOKEN), false, 'API 不得回傳 CLI token');
     assert.equal(responses.includes(env.SSHDECK_UI_TOKEN), false, 'API 不得回傳 UI token');
+    assert.equal(responses.includes(env.SSHDECK_TUNNEL_TOKEN), false, 'API 不得回傳 tunnel token');
 
     const listed = await api(server, '/v1/keys', { token: env.SSHDECK_UI_TOKEN });
     assert.equal(listed.status, 200);
@@ -283,6 +284,76 @@ test('service API 加密憑證、雙重認證、鎖定／重啟與損壞資料 f
   }
 });
 
+test('service 要求與既有憑證及加密金鑰分離的 tunnel token', { timeout: 20_000 }, async () => {
+  const temp = makeTaskTemp();
+  const home = path.join(temp, 'service-data');
+  const base = createServiceEnv(home);
+  const validTunnelToken = randomBytes(36).toString('base64url');
+  assert.equal(new Set([
+    base.SSHDECK_SERVICE_TOKEN,
+    base.SSHDECK_UI_TOKEN,
+    validTunnelToken,
+  ]).size, 3, 'CLI、UI、tunnel token sentinel 必須彼此獨立');
+  const assertRejected = async (env, code) => {
+    let server;
+    let startupError;
+    try {
+      server = await startService({ env, port: 0 });
+    } catch (error) {
+      startupError = error;
+    } finally {
+      if (server) await server.closeAsync();
+    }
+    assert.equal(startupError?.code, code, 'service 必須在啟動前拒絕不合法的 tunnel token 設定');
+  };
+
+  let server;
+  try {
+    const withoutTunnelToken = { ...base };
+    delete withoutTunnelToken.SSHDECK_TUNNEL_TOKEN;
+    await assertRejected(withoutTunnelToken, 'TUNNEL_TOKEN_REQUIRED');
+    await assertRejected({ ...base, SSHDECK_TUNNEL_TOKEN: 'short' }, 'TUNNEL_TOKEN_REQUIRED');
+    await assertRejected({ ...base, SSHDECK_TUNNEL_TOKEN: base.SSHDECK_SERVICE_TOKEN }, 'TUNNEL_TOKEN_INVALID');
+    await assertRejected({ ...base, SSHDECK_TUNNEL_TOKEN: base.SSHDECK_UI_TOKEN }, 'TUNNEL_TOKEN_INVALID');
+    await assertRejected({ ...base, SSHDECK_TUNNEL_TOKEN: base.SSHDECK_ENCRYPTION_KEY }, 'TUNNEL_TOKEN_INVALID');
+
+    server = await startService({
+      env: { ...base, SSHDECK_TUNNEL_TOKEN: validTunnelToken },
+      port: 0,
+    });
+    const requestWithToken = (token) => ({ headers: { authorization: `Bearer ${token}` } });
+    assert.equal(server.isTunnelAuthorizedRequest(requestWithToken(validTunnelToken)), true,
+      'service 應提供 Ticket 02 可消費的 tunnel-only auth role');
+    assert.equal(server.isTunnelAuthorizedRequest(requestWithToken(base.SSHDECK_SERVICE_TOKEN)), false,
+      'CLI role 不得被視為 tunnel role');
+    assert.equal(server.isTunnelAuthorizedRequest(requestWithToken(base.SSHDECK_UI_TOKEN)), false,
+      'UI role 不得被視為 tunnel role');
+    const tunnelCannotReadHosts = await api(server, '/v1/hosts', { token: validTunnelToken });
+    assert.equal(tunnelCannotReadHosts.status, 403, 'tunnel token 必須被辨識，但不得讀取管理 API');
+    assert.equal(tunnelCannotReadHosts.payload.code, 'FORBIDDEN');
+    for (const secret of [base.SSHDECK_SERVICE_TOKEN, base.SSHDECK_UI_TOKEN, validTunnelToken]) {
+      assert.equal(tunnelCannotReadHosts.text.includes(secret), false, 'API response 不得包含 token sentinel');
+      assert.equal(server.url.includes(secret), false, 'service URL 不得包含 token sentinel');
+    }
+    assert.equal((await api(server, '/v1/hosts', { token: base.SSHDECK_SERVICE_TOKEN })).status, 200);
+    assert.equal((await api(server, '/v1/hosts', { token: base.SSHDECK_UI_TOKEN })).status, 200);
+    const forbiddenRoutes = [
+      { route: '/v1/keys' },
+      { route: '/v1/hosts/unknown/exec', method: 'POST', body: { command: 'must-not-run' } },
+      { route: '/v1/hosts/unknown/key', method: 'GET' },
+      { route: '/v1/lock', method: 'POST', body: {} },
+      { route: '/v1/unlock', method: 'POST', body: {} },
+    ];
+    for (const { route, method, body } of forbiddenRoutes) {
+      const response = await api(server, route, { token: validTunnelToken, method, body });
+      assert.equal(response.status, 403, 'tunnel token 不得呼叫主機／金鑰管理、exec 或 lock 路徑');
+    }
+  } finally {
+    if (server) await server.closeAsync();
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 test('service start CLI 啟動健康端點，終止後不留背景程序', { timeout: 20_000 }, async () => {
   const temp = makeTaskTemp();
   const env = {
@@ -298,8 +369,21 @@ test('service start CLI 啟動健康端點，終止後不留背景程序', { tim
       deadlineMs: 30_000,
     });
     await waitForOutput(serviceCli, 'stdout', 'sshdeck service：http://127.0.0.1:', 10_000, 'service start CLI 啟動');
+    const secrets = [
+      env.SSHDECK_SERVICE_TOKEN,
+      env.SSHDECK_UI_TOKEN,
+      env.SSHDECK_TUNNEL_TOKEN,
+      env.SSHDECK_ENCRYPTION_KEY,
+    ];
+    for (const secret of secrets) {
+      assert.equal(serviceCli.child.spawnargs.some((argument) => argument.includes(secret)), false,
+        'service process argv 不得包含 server-side 憑證');
+      assert.equal(`${serviceCli.output.stdout}\n${serviceCli.output.stderr}`.includes(secret), false,
+        'service CLI 輸出不得包含 server-side 憑證');
+    }
     const url = serviceCli.output.stdout.match(/sshdeck service：(http:\/\/127\.0\.0\.1:\d+)/)?.[1];
     assert.ok(url, 'service CLI 必須回報本次動態監聽 URL');
+    assert.equal(new URL(url).search, '', 'service URL 不得包含憑證 query');
     const health = await fetch(`${url}/v1/health`, { signal: AbortSignal.timeout(3000) });
     assert.equal(health.status, 200);
     assert.equal((await health.json()).status, 'ok');

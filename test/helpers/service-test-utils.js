@@ -15,6 +15,7 @@ function createServiceEnv(home) {
     SSHDECK_ENCRYPTION_KEY: randomBytes(32).toString('hex'),
     SSHDECK_SERVICE_TOKEN: randomBytes(36).toString('base64url'),
     SSHDECK_UI_TOKEN: randomBytes(36).toString('base64url'),
+    SSHDECK_TUNNEL_TOKEN: randomBytes(36).toString('base64url'),
   };
 }
 
