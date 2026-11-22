@@ -12,6 +12,18 @@ const {
 
 const root = path.resolve(__dirname, '..');
 
+function runGit(cwd, args, options = {}) {
+  const result = spawnSync('git', args, {
+    cwd,
+    encoding: options.encoding === undefined ? 'utf8' : options.encoding,
+    timeout: options.timeout ?? 10_000,
+    windowsHide: true,
+  });
+  if (result.error) throw result.error;
+  assert.equal(result.status, 0, `git ${args[0]} 必須成功`);
+  return result.stdout;
+}
+
 function listFiles(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const absolute = path.join(directory, entry.name);
@@ -88,6 +100,80 @@ test('package verifier 拒絕 README 與同一 package root 版本不一致的�
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test('candidate-eol: fresh core.autocrlf=true checkout reproduces tracked source candidate', {
+  timeout: 120_000,
+}, (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sshdeck-candidate-eol-'));
+  const checkout = path.join(tempRoot, 'checkout');
+  const output = path.join(tempRoot, 'candidate-output');
+  t.after(() => {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+    assert.equal(fs.existsSync(tempRoot), false, 'fresh checkout 與 candidate 暫存資源必須清理');
+  });
+
+  const sourceCommit = runGit(root, ['rev-parse', 'HEAD']).trim();
+  runGit(root, ['clone', '--no-hardlinks', '--no-checkout', root, checkout], { timeout: 30_000 });
+  runGit(checkout, ['config', 'core.autocrlf', 'true']);
+  runGit(checkout, ['checkout', '--detach', sourceCommit], { timeout: 30_000 });
+
+  const checkoutCommit = runGit(checkout, ['rev-parse', 'HEAD']).trim();
+  const coreAutocrlf = runGit(checkout, ['config', '--get', 'core.autocrlf']).trim();
+  const canonicalReadme = runGit(checkout, ['show', `${checkoutCommit}:README.md`], { encoding: null });
+  const checkedOutReadme = fs.readFileSync(path.join(checkout, 'README.md'));
+
+  const npmCli = process.env.npm_execpath;
+  assert.ok(npmCli && path.isAbsolute(npmCli), '請透過 npm test 執行 candidate regression');
+  const candidateRun = spawnSync(process.execPath, [
+    npmCli,
+    'run',
+    'candidate:source',
+    '--',
+    '--output-dir',
+    output,
+  ], {
+    cwd: checkout,
+    encoding: 'utf8',
+    timeout: 120_000,
+    maxBuffer: 16 * 1024 * 1024,
+    windowsHide: true,
+  });
+  if (candidateRun.error) throw candidateRun.error;
+  assert.equal(candidateRun.status, 0, 'fresh clean checkout 的 candidate:source 必須成功');
+
+  const generated = JSON.parse(fs.readFileSync(path.join(output, 'candidate-manifest.json'), 'utf8'));
+  const tracked = JSON.parse(fs.readFileSync(path.join(checkout, 'candidate/ticket-03-candidate.json'), 'utf8'));
+  const packageManifest = JSON.parse(fs.readFileSync(path.join(checkout, 'package.json'), 'utf8'));
+  const matches = {
+    candidateUsesCheckoutCommit: generated.sourceCommit === checkoutCommit,
+    checkoutIsClean: runGit(checkout, ['status', '--porcelain']).trim() === '',
+    coreAutocrlfIsTrue: coreAutocrlf === 'true',
+    readmeMatchesCanonicalGitBlob: checkedOutReadme.equals(canonicalReadme),
+    packageVersionMatchesManifest: packageManifest.version === tracked.package.version
+      && generated.package.name === tracked.package.name
+      && generated.package.version === tracked.package.version,
+    archiveFilenameMatches: generated.archive.filename === tracked.archive.filename,
+    archiveBytesMatch: generated.archive.bytes === tracked.archive.bytes,
+    archiveSha256Matches: generated.archive.sha256 === tracked.archive.sha256,
+    fullFileListMatches: JSON.stringify(generated.files) === JSON.stringify(tracked.files),
+    packRunsAreReproducible: generated.reproducibility.packRuns === 2
+      && generated.reproducibility.archiveSha256Matches
+      && generated.reproducibility.archiveSizesMatch
+      && generated.reproducibility.fileListsMatch,
+  };
+  assert.deepEqual(matches, {
+    candidateUsesCheckoutCommit: true,
+    checkoutIsClean: true,
+    coreAutocrlfIsTrue: true,
+    readmeMatchesCanonicalGitBlob: true,
+    packageVersionMatchesManifest: true,
+    archiveFilenameMatches: true,
+    archiveBytesMatch: true,
+    archiveSha256Matches: true,
+    fullFileListMatches: true,
+    packRunsAreReproducible: true,
+  }, 'fresh core.autocrlf=true checkout 必須產生與 tracked manifest 一致的 source candidate');
 });
 
 test('package candidate 包含 service/API handoff，Bot-readable 文件不嵌入 token sentinel', () => {
