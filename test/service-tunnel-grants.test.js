@@ -289,6 +289,7 @@ test('DELETE 等待 async invalidation subscribers，拒絕時 grant 失效且�
   const env = createServiceEnv(path.join(temp, 'service-home'));
   let service;
   let releaseNotification = () => {};
+  let requestObserver;
   try {
     service = await startService({ env, port: 0 });
     await createHost(service, env, { alias: 'await-revoke' });
@@ -316,16 +317,31 @@ test('DELETE 等待 async invalidation subscribers，拒絕時 grant 失效且�
     await notified;
     assert.equal(responseReceived, false, 'subscriber 尚未完成時 DELETE 不得提早回應 204');
     let duplicateResponseReceived = false;
-    const duplicateResponse = api(service, `/v1/hosts/await-revoke/tcp-tunnel-targets/${targetId}`, {
+    let markDuplicateEntered;
+    const duplicateEntered = new Promise((resolve) => { markDuplicateEntered = resolve; });
+    const duplicatePath = `/v1/hosts/await-revoke/tcp-tunnel-targets/${targetId}`;
+    requestObserver = (request, response) => {
+      if (request.method === 'DELETE' && request.url === duplicatePath) {
+        service.off('request', requestObserver);
+        markDuplicateEntered(response);
+      }
+    };
+    service.on('request', requestObserver);
+    const duplicateResponse = api(service, duplicatePath, {
       method: 'DELETE',
       token: env.SSHDECK_UI_TOKEN,
     }).then((response) => {
       duplicateResponseReceived = true;
       return response;
     });
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    const duplicateServerResponse = await duplicateEntered;
+    // Node 會先呼叫 service 的 request handler；它開始 dispatch 並進入 await 後才執行此 observer。
+    // 下一個 event-loop turn 讓已可完成的 response 有機會結束，不用以固定毫秒數猜測。
+    await new Promise((resolve) => setImmediate(resolve));
     assert.equal(duplicateResponseReceived, false,
       '同一 target 的並行冪等 DELETE 也必須等待先行的失效通知完成');
+    assert.equal(duplicateServerResponse.writableEnded, false,
+      '第二個 DELETE 已進入 server handler，但第一個 subscriber 未完成前 response 不得結束');
     releaseNotification();
     assert.equal((await pendingResponse).status, 204);
     assert.equal((await duplicateResponse).status, 204);
@@ -357,6 +373,7 @@ test('DELETE 等待 async invalidation subscribers，拒絕時 grant 失效且�
     assert.equal(rejectedCalls, 1);
   } finally {
     releaseNotification();
+    if (service && requestObserver) service.off('request', requestObserver);
     if (service) await service.closeAsync();
     fs.rmSync(temp, { recursive: true, force: true });
   }
@@ -700,8 +717,6 @@ test('fingerprint trust A→B→A 在中途未 lookup 時也永久撤銷舊 targ
     const events = [];
     service.subscribeTunnelTargetGrantInvalidation((event) => {
       events.push(event);
-      assert.equal(service.getTunnelTargetGrant(event.alias, event.targetId), undefined,
-        'fingerprint trust 變更通知前 grant 必須已撤銷');
     });
 
     await closeSshFingerprintPeer(peer);
@@ -715,8 +730,10 @@ test('fingerprint trust A→B→A 在中途未 lookup 時也永久撤銷舊 targ
     peer = await startSshFingerprintPeer(keyA.privateKey, port);
     assert.equal((await check(keyA.fingerprint)).status, 200, '再次核對舊 fingerprint 應完成 trust');
 
+    // A→B 階段 subscriber 只記錄事件，沒有呼叫 grant lookup；此處是 trust 回到 A 後第一次 lookup，
+    // 因而 lazy fingerprint mismatch 清理不能讓測試假通過。
     assert.equal(service.getTunnelTargetGrant(host.alias, targetId) === undefined, true,
-      'A→B→A 輪替不得讓中途未 lookup 的舊 target ID 復活');
+      'A→B→A 輪替後首次 lookup 仍須拒絕舊 target ID');
     assert.equal(events.length, 1, '已撤銷 target ID 不得在 trust 回到 A 時重新產生失效事件或復活');
   } finally {
     if (peer) await closeSshFingerprintPeer(peer);
