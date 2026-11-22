@@ -289,7 +289,7 @@ test('真實 Ubuntu OpenSSH direct-tcpip tunnel 傳送 binary bytes 並拒絕 Pe
     });
     service = await startService({ env, port: 0 });
     const alias = 'ticket02-real-tunnel';
-    const host = { alias, hostname: '127.0.0.1', port: fixture.ports[0], username: 'root' };
+    const host = { alias, hostname: fixture.sshHost, port: fixture.ports[0], username: 'root' };
     assert.equal((await api(service, '/v1/hosts', {
       method: 'POST',
       token: env.SSHDECK_UI_TOKEN,

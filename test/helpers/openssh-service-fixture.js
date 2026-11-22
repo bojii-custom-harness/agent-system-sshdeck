@@ -7,6 +7,21 @@ const { spawnSync } = require('node:child_process');
 
 const ports = [2227, 2228];
 
+// Windows host 直連 WSL 私有 eth0，避免 localhost relay 在大量雙向 SSH 資料時停滯。
+function getPrivateWslHostAddress() {
+  const addresses = runWsl(['ip', '-4', '-o', 'addr', 'show', 'dev', 'eth0', 'scope', 'global']);
+  const host = addresses.match(/\binet\s+([0-9.]+)\/\d+\b/)?.[1];
+  if (!host || !net.isIPv4(host)) {
+    throw new Error('WSL fixture 無法取得 eth0 私有 IPv4 位址');
+  }
+  const [first, second] = host.split('.').map(Number);
+  const isPrivate = first === 10
+    || (first === 172 && second >= 16 && second <= 31)
+    || (first === 192 && second === 168);
+  if (!isPrivate) throw new Error('WSL fixture eth0 位址不在 RFC1918 私有範圍');
+  return host;
+}
+
 function runWsl(args, { input, timeoutMs = 20_000 } = {}) {
   const result = runWslResult(args, { input, timeoutMs });
   if (result.error || result.status !== 0) {
@@ -70,12 +85,12 @@ function portAvailable(port) {
   });
 }
 
-async function waitForPort(port, timeoutMs = 10_000) {
+async function waitForPort(port, host = '127.0.0.1', timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
       await new Promise((resolve, reject) => {
-        const socket = net.createConnection({ host: '127.0.0.1', port });
+        const socket = net.createConnection({ host, port });
         socket.once('connect', () => { socket.destroy(); resolve(); });
         socket.once('error', reject);
       });
@@ -120,6 +135,7 @@ async function createOpenSshServiceFixture({
   if (typeof authorizedPublicKey !== 'string' || !authorizedPublicKey.startsWith('ssh-ed25519 ')) {
     throw new Error('fixture 需要隔離測試用 Ed25519 公鑰');
   }
+  const sshHost = getPrivateWslHostAddress();
   for (const port of ports) {
     if (!await portAvailable(port)) throw new Error(`OpenSSH fixture port ${port} 已被占用；未停止任何既有程序`);
   }
@@ -155,6 +171,7 @@ async function createOpenSshServiceFixture({
   };
   const sshdConfig = (endpoint, port) => `Port ${port}
 ListenAddress 127.0.0.1
+ListenAddress ${sshHost}
 HostKey ${root}/host-${endpoint}
 PidFile ${root}/sshd-${endpoint}.pid
 AuthorizedKeysFile ${root}/authorized_keys
@@ -223,6 +240,7 @@ server.serve_forever(poll_interval=0.1)
       startedUnits.add(unit);
       await waitForUnit(unit);
       await waitForPort(ports[index]);
+      await waitForPort(ports[index], sshHost);
     }
     const fingerprints = {
       a: fingerprintFor(`${root}/host-a`),
@@ -237,6 +255,7 @@ server.serve_forever(poll_interval=0.1)
       runWsl(['chmod', '600', `${root}/host-b`]);
       runWsl(['systemctl', 'restart', units[1]]);
       await waitForPort(ports[1]);
+      await waitForPort(ports[1], sshHost);
       fingerprints.rotatedB = fingerprintFor(`${root}/host-b`);
       if (fingerprints.rotatedB === fingerprints.b) throw new Error('host key rotation 未產生新指紋');
       return fingerprints.rotatedB;
@@ -272,6 +291,7 @@ server.serve_forever(poll_interval=0.1)
       const evidence = {
         fixture: 'WSL Ubuntu transient OpenSSH',
         root,
+        sshHost,
         ...(targetPort ? { target: { host: '127.0.0.1', port: targetPort, free: targetPortFree } } : {}),
         units: stopped,
         ports: portStates,
@@ -286,6 +306,7 @@ server.serve_forever(poll_interval=0.1)
     return {
       root,
       units,
+      sshHost,
       targetPort,
       ports: [...ports],
       fingerprints,
