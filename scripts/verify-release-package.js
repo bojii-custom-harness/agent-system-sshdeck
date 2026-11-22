@@ -6,12 +6,40 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const requiredFiles = [
+  'README.md',
   'bin/sshdeck.js',
   'lib/service-server.js',
   'docs/service-api.md',
+  'docs/service-deployment.md',
   '.opencode/skills/agent-system-sshdeck/SKILL.md',
   '.opencode/skills/agent-system-sshdeck/references/install.md',
 ];
+const requiredDocumentation = {
+  'README.md': [
+    'docs/service-api.md',
+    'docs/service-deployment.md',
+    'SSHDECK_SERVICE_TOKEN',
+    'SSHDECK_UI_TOKEN',
+    'SSHDECK_TUNNEL_TOKEN',
+  ],
+  'docs/service-api.md': [
+    'SSHDECK_SERVICE_TOKEN',
+    'SSHDECK_UI_TOKEN',
+    'SSHDECK_TUNNEL_TOKEN',
+    '/v1/hosts/{alias}/tcp-tunnel-targets',
+    '/v1/hosts/{alias}/tcp-tunnel',
+    'direct-tcpip',
+  ],
+  'docs/service-deployment.md': [
+    'SSHDECK_SERVICE_HOME',
+    'SSHDECK_ENCRYPTION_KEY',
+    'SSHDECK_SERVICE_TOKEN',
+    'SSHDECK_UI_TOKEN',
+    'SSHDECK_TUNNEL_TOKEN',
+    '不代理 grant/tunnel 路由',
+    '不授權修改其他 repo 的 deployment pin',
+  ],
+};
 
 function readArgument(name) {
   const index = process.argv.indexOf(name);
@@ -34,7 +62,17 @@ function verifyPacklist(file) {
   console.log(`套件清單通過：${record.name}@${record.version}，包含 ${requiredFiles.length} 項必要檔案`);
 }
 
+function verifyDocumentation(root) {
+  for (const [filePath, phrases] of Object.entries(requiredDocumentation)) {
+    const content = fs.readFileSync(path.join(root, filePath), 'utf8');
+    for (const phrase of phrases) {
+      assert.ok(content.includes(phrase), `${filePath} 缺少 service 契約：${phrase}`);
+    }
+  }
+}
+
 function verifySourcePacklist() {
+  verifyDocumentation(path.resolve(__dirname, '..'));
   const npmCli = process.env.npm_execpath;
   assert.ok(npmCli && path.isAbsolute(npmCli), '請透過 npm run verify:package 執行來源套件檢查');
   const result = spawnSync(process.execPath, [npmCli, 'pack', '--dry-run', '--json'], {
@@ -63,6 +101,7 @@ function verifyInstalled(directory) {
   for (const filePath of requiredFiles) {
     assert.ok(fs.statSync(path.join(root, filePath)).isFile(), `已安裝附件缺少必要檔案：${filePath}`);
   }
+  verifyDocumentation(root);
   console.log(`已安裝套件通過：${manifest.name}@${manifest.version}，skill 與執行檔均可讀取`);
 }
 

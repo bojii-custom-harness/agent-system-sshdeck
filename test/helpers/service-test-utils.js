@@ -19,6 +19,22 @@ function createServiceEnv(home) {
   };
 }
 
+function applyTicket03TokenSentinels(env) {
+  const runId = randomBytes(18).toString('hex');
+  env.SSHDECK_SERVICE_TOKEN = `T03_SERVICE_SENTINEL_${runId}`;
+  env.SSHDECK_UI_TOKEN = `T03_UI_SENTINEL_${runId}`;
+  env.SSHDECK_TUNNEL_TOKEN = `T03_TUNNEL_SENTINEL_${runId}`;
+  const tokens = [
+    env.SSHDECK_SERVICE_TOKEN,
+    env.SSHDECK_UI_TOKEN,
+    env.SSHDECK_TUNNEL_TOKEN,
+  ];
+  if (new Set(tokens).size !== tokens.length) {
+    throw new Error('Ticket 03 token sentinel 必須彼此不同');
+  }
+  return tokens;
+}
+
 async function api(server, route, {
   method = 'GET',
   body,
@@ -120,6 +136,7 @@ module.exports = {
   productRoot,
   cliPath,
   createServiceEnv,
+  applyTicket03TokenSentinels,
   api,
   spawnCli,
   waitForOutput,

@@ -9,7 +9,7 @@ const { randomBytes } = require('node:crypto');
 const { utils } = require('ssh2');
 const { main, startUi } = require('../bin/sshdeck.js');
 const { startService } = require('../lib/service-server');
-const { createServiceEnv } = require('./helpers/service-test-utils');
+const { applyTicket03TokenSentinels, createServiceEnv } = require('./helpers/service-test-utils');
 
 async function request(server, route, { method = 'GET', body } = {}) {
   const response = await fetch(`${new URL(server.url).origin}${route}`, {
@@ -69,6 +69,7 @@ test('service UI adapter 以 server-side token 消費 API 並安全處理 CRUD�
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sshdeck-ui-service-'));
   const serviceHome = path.join(directory, 'service-home');
   const env = createServiceEnv(serviceHome);
+  const tokenSentinels = applyTicket03TokenSentinels(env);
   let service;
   let ui;
   const serviceRequests = [];
@@ -100,12 +101,7 @@ test('service UI adapter 以 server-side token 消費 API 並安全處理 CRUD�
     };
     assert.match(html, /"mode":"service"/);
     assert.match(html, /"basePath":"\/sshdeck"/);
-    const secrets = [
-      env.SSHDECK_SERVICE_TOKEN,
-      env.SSHDECK_UI_TOKEN,
-      env.SSHDECK_TUNNEL_TOKEN,
-      env.SSHDECK_ENCRYPTION_KEY,
-    ];
+    const secrets = [...tokenSentinels, env.SSHDECK_ENCRYPTION_KEY];
     assert.equal(new Set(secrets.slice(0, 3)).size, 3, '三種 token sentinel 必須彼此不同');
     const browserAssets = await Promise.all(['workspace.js', 'terminal.js', 'connection-guide.js'].map(async (asset) => (
       await (await fetch(`${origin}/sshdeck/assets/${asset}`)).text()

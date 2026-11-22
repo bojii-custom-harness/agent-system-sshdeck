@@ -446,6 +446,18 @@ function targetPortListening(port) {
     .some((line) => new RegExp(`:${port}(?:\\s|$)`).test(line));
 }
 
+function establishedConnections(host, port, runWslCommand = runWsl) {
+  if (typeof host !== 'string' || net.isIP(host) === 0) {
+    throw new Error('OpenSSH fixture connection probe host 必須是 IP 位址');
+  }
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('OpenSSH fixture connection probe port 無效');
+  }
+  const address = net.isIPv6(host) ? `[${host}]:${port}` : `${host}:${port}`;
+  return runWslCommand(['ss', '-H', '-tn', 'state', 'established', 'dst', '=', address])
+    .split(/\r?\n/).filter(Boolean);
+}
+
 function fingerprintFor(path) {
   const output = runWsl(['ssh-keygen', '-lf', `${path}.pub`, '-E', 'sha256']);
   const fingerprint = output.match(/SHA256:[^\s]+/)?.[0];
@@ -458,6 +470,7 @@ async function createOpenSshServiceFixture({
   evidenceFile,
   enablePty = false,
   allowDirectTcpip = false,
+  permitOpenTargets = [],
 } = {}, dependencies = {}) {
   const {
     getPrivateWslHostAddress: resolveWslHostAddress = getPrivateWslHostAddress,
@@ -470,9 +483,35 @@ async function createOpenSshServiceFixture({
     stopUnitAndWait: stopAndWaitForUnit = stopUnitAndWait,
     unitIsStopped: confirmUnitStopped = unitIsStopped,
     targetPortListening: isTargetPortListening = targetPortListening,
+    establishedConnections: listEstablishedConnections = (host, port) => (
+      establishedConnections(host, port, runWslCommand)
+    ),
     fingerprintFor: getFingerprint = fingerprintFor,
     portReleaseTimeoutMs = 5000,
   } = dependencies;
+  if (!Array.isArray(permitOpenTargets)) {
+    throw new Error('fixture PermitOpen 額外目標必須是陣列');
+  }
+  if (permitOpenTargets.length > 0 && !allowDirectTcpip) {
+    throw new Error('fixture PermitOpen 額外目標需要啟用 direct-tcpip');
+  }
+  const validatedPermitOpenTargets = permitOpenTargets.map((target) => {
+    if (!target || typeof target !== 'object' || Array.isArray(target)) {
+      throw new Error('fixture PermitOpen 目標必須包含 IP 與 TCP port');
+    }
+    const keys = Object.keys(target).sort();
+    if (keys.length !== 2 || keys[0] !== 'host' || keys[1] !== 'port') {
+      throw new Error('fixture PermitOpen 目標只接受 host 與 port');
+    }
+    if (typeof target.host !== 'string' || net.isIP(target.host) === 0) {
+      throw new Error('fixture PermitOpen 目標 host 必須是 IP 位址');
+    }
+    if (!Number.isInteger(target.port) || target.port < 1 || target.port > 65535) {
+      throw new Error('fixture PermitOpen 目標 port 必須是有效 TCP port');
+    }
+    const host = net.isIPv6(target.host) ? `[${target.host}]` : target.host;
+    return `${host}:${target.port}`;
+  });
   if (typeof authorizedPublicKey !== 'string' || !authorizedPublicKey.startsWith('ssh-ed25519 ')) {
     throw new Error('fixture 需要隔離測試用 Ed25519 公鑰');
   }
@@ -565,7 +604,9 @@ UsePAM no
 StrictModes no
 AllowUsers root
 AllowTcpForwarding ${allowDirectTcpip ? 'local' : 'no'}
-${allowDirectTcpip ? `PermitOpen 127.0.0.1:${targetPort}` : ''}
+${allowDirectTcpip
+    ? `PermitOpen ${[`127.0.0.1:${targetPort}`, ...validatedPermitOpenTargets].join(' ')}`
+    : ''}
 AllowAgentForwarding no
 X11Forwarding no
 PermitTunnel no
@@ -814,6 +855,7 @@ server.serve_forever(poll_interval=0.1)
         root,
         sshHost,
         ...(targetPort ? { target: { host: '127.0.0.1', port: targetPort, free: targetPortFree } } : {}),
+        permitOpenTargets: validatedPermitOpenTargets,
         units: unitCleanup?.stopped || [],
         unitAttempts: unitCleanup?.attempts || [],
         rootCleanup: rootState,
@@ -853,6 +895,7 @@ server.serve_forever(poll_interval=0.1)
       units,
       sshHost,
       targetPort,
+      permitOpenTargets: [...validatedPermitOpenTargets],
       ports: [...ports],
       fingerprints,
       command(name) {
@@ -864,6 +907,7 @@ server.serve_forever(poll_interval=0.1)
       isListening,
       isWslSessionActive() { return wslSession.isRunning; },
       isTargetListening() { return isTargetPortListening(targetPort); },
+      establishedConnections(host, port) { return listEstablishedConnections(host, port); },
       rotateB,
       cleanup,
     };

@@ -344,6 +344,146 @@ test('OpenSSH fixture preflight 遇到 unknown port probe 時 fail closed 且不
   assert.deepEqual(fake.systemdRunUnits, [], 'unknown 不得被當作 free 繼續啟動 SSH fixture');
 });
 
+test('OpenSSH fixture 預設 PermitOpen 仍只允許動態 loopback echo target', async () => {
+  const fake = fakeFixtureDependencies({ failUnitCleanup: false });
+  const fixture = await createOpenSshServiceFixture({
+    authorizedPublicKey: 'ssh-ed25519 test-key',
+    allowDirectTcpip: true,
+  }, fake.dependencies);
+  const configCommand = fake.runWslCalls
+    .filter((args) => args[0] === 'bash' && args[1] === '-lc')
+    .map((args) => args.at(-1))
+    .find((script) => script.includes('sshd-a.conf'));
+
+  try {
+    assert.ok(configCommand, 'fixture 必須產生 sshd config');
+    assert.deepEqual(
+      [...configCommand.matchAll(/^PermitOpen .+$/gm)].map(([line]) => line),
+      [
+        'PermitOpen 127.0.0.1:34567',
+        'PermitOpen 127.0.0.1:34567',
+      ],
+      '既有 direct-tcpip 呼叫仍只能到 dynamic loopback echo target',
+    );
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('OpenSSH fixture 可對實際 container IP 加入精確 PermitOpen 並保留 echo target', async () => {
+  const fake = fakeFixtureDependencies({ failUnitCleanup: false });
+  const fixture = await createOpenSshServiceFixture({
+    authorizedPublicKey: 'ssh-ed25519 test-key',
+    allowDirectTcpip: true,
+    permitOpenTargets: [{ host: '172.19.24.99', port: 3001 }],
+  }, fake.dependencies);
+  const configCommand = fake.runWslCalls
+    .filter((args) => args[0] === 'bash' && args[1] === '-lc')
+    .map((args) => args.at(-1))
+    .find((script) => script.includes('sshd-a.conf'));
+
+  try {
+    assert.ok(configCommand, 'fixture 必須產生 sshd config');
+    assert.deepEqual(
+      [...configCommand.matchAll(/^PermitOpen .+$/gm)].map(([line]) => line),
+      [
+        'PermitOpen 127.0.0.1:34567 172.19.24.99:3001',
+        'PermitOpen 127.0.0.1:34567 172.19.24.99:3001',
+      ],
+      '每個 sshd endpoint 僅允許 echo target 與明確指定的 container-private IP:port',
+    );
+    assert.doesNotMatch(configCommand, /172\.19\.24\.99:3002/);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('OpenSSH fixture 可唯讀列出指向精確 IP:port 的 established connections', async () => {
+  const fake = fakeFixtureDependencies({ failUnitCleanup: false });
+  const connection = 'ESTAB 0 0 172.19.24.36:53000 172.19.24.99:3001';
+  const connectionProbeCalls = [];
+  const originalRunWsl = fake.dependencies.runWsl;
+  fake.dependencies.runWsl = (args, options) => {
+    if (args[0] === 'ss' && args[1] === '-H') {
+      connectionProbeCalls.push(args);
+      return connection;
+    }
+    return originalRunWsl(args, options);
+  };
+  const fixture = await createOpenSshServiceFixture({
+    authorizedPublicKey: 'ssh-ed25519 test-key',
+  }, fake.dependencies);
+
+  try {
+    assert.deepEqual(
+      fixture.establishedConnections('172.19.24.99', 3001),
+      [connection],
+    );
+    assert.deepEqual(connectionProbeCalls, [[
+      'ss', '-H', '-tn', 'state', 'established', 'dst', '=', '172.19.24.99:3001',
+    ]]);
+    assert.throws(
+      () => fixture.establishedConnections('webtop', 3001),
+      /host 必須是 IP 位址/,
+    );
+    assert.throws(
+      () => fixture.establishedConnections('172.19.24.99', 65536),
+      /port 無效/,
+    );
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('OpenSSH fixture PermitOpen 額外目標拒絕非 IP、無效 port 與未授權轉送', async () => {
+  const fake = fakeSetupFailureDependencies();
+  let hostAddressLookups = 0;
+  fake.dependencies.getPrivateWslHostAddress = () => {
+    hostAddressLookups += 1;
+    return '172.19.24.36';
+  };
+  const invalidOptions = [
+    {
+      options: { permitOpenTargets: [{ host: 'webtop', port: 3001 }] },
+      message: /需要啟用 direct-tcpip/,
+    },
+    {
+      options: {
+        allowDirectTcpip: true,
+        permitOpenTargets: [{ host: 'webtop', port: 3001 }],
+      },
+      message: /host 必須是 IP 位址/,
+    },
+    {
+      options: {
+        allowDirectTcpip: true,
+        permitOpenTargets: [{ host: '172.19.24.99', port: 65536 }],
+      },
+      message: /port 必須是有效 TCP port/,
+    },
+    {
+      options: {
+        allowDirectTcpip: true,
+        permitOpenTargets: [{ host: '172.19.24.99', port: 3001, extra: 'unexpected' }],
+      },
+      message: /只接受 host 與 port/,
+    },
+  ];
+
+  for (const { options, message } of invalidOptions) {
+    await assert.rejects(
+      createOpenSshServiceFixture({
+        authorizedPublicKey: 'ssh-ed25519 test-key',
+        ...options,
+      }, fake.dependencies),
+      message,
+    );
+  }
+  assert.equal(hostAddressLookups, 0, '參數驗證失敗不得觸碰 WSL fixture');
+  assert.equal(fake.session.stopCalls, 0, '參數驗證失敗不得啟動或停止 WSL session');
+  assert.deepEqual(fake.systemdRunUnits, []);
+});
+
 test('WSL fixture keeper 在 readiness marker 後立即退出時 startup fail closed', async () => {
   const fake = fakeSpawn('exit-after-marker');
   await assert.rejects(

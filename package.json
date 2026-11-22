@@ -7,6 +7,7 @@
     "lib/",
     "public/",
     "docs/service-api.md",
+    "docs/service-deployment.md",
     ".opencode/skills/agent-system-sshdeck/"
   ],
   "repository": {
@@ -19,7 +20,8 @@
   },
   "scripts": {
     "test": "node --test --test-concurrency=1",
-    "verify:package": "node scripts/verify-release-package.js --source"
+    "verify:package": "node scripts/verify-release-package.js --source",
+    "candidate:source": "node scripts/create-source-candidate.js"
   },
   "bin": {
     "agent-system-sshdeck": "bin/sshdeck.js",

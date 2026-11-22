@@ -4,14 +4,24 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { randomBytes } = require('node:crypto');
+const { randomBytes, randomUUID, createHash } = require('node:crypto');
 const { Duplex } = require('node:stream');
+const tls = require('node:tls');
 const { utils } = require('ssh2');
 const WebSocket = require('ws');
 const ssh = require('../lib/ssh');
 const { startService } = require('../lib/service-server');
-const { createOpenSshServiceFixture } = require('./helpers/openssh-service-fixture');
-const { api, createServiceEnv, makeTaskTemp } = require('./helpers/service-test-utils');
+const {
+  createOpenSshServiceFixture,
+  portAvailable,
+} = require('./helpers/openssh-service-fixture');
+const { createUbuntuWebtopFixture } = require('./helpers/ubuntu-webtop-fixture');
+const {
+  api,
+  applyTicket03TokenSentinels,
+  createServiceEnv,
+  makeTaskTemp,
+} = require('./helpers/service-test-utils');
 
 const trustedFingerprint = 'SHA256:ticket02-test-trust';
 
@@ -201,7 +211,7 @@ async function createGrantedHost(service, env, alias) {
   return { host, targetId: grant.payload.targetId };
 }
 
-async function sendAndExpectError(socket, frame, expectedCode) {
+async function sendAndExpectError(socket, frame, expectedCode, forbiddenValues = []) {
   const control = waitForControl(socket, (message) => message.type === 'error');
   const closed = waitForSocketClose(socket);
   if (Buffer.isBuffer(frame)) socket.send(frame, { binary: true });
@@ -209,7 +219,12 @@ async function sendAndExpectError(socket, frame, expectedCode) {
   const [message, close] = await Promise.all([control, closed]);
   assert.equal(message.code, expectedCode);
   assert.equal(typeof message.error, 'string');
+  for (const value of forbiddenValues) {
+    assert.equal(JSON.stringify(message).includes(value), false,
+      'WebSocket control response 不得包含 token sentinel');
+  }
   assert.notEqual(close.code, 1000, '無效 tunnel frame 必須以協定錯誤關閉');
+  return message;
 }
 
 function waitForBinaryBytes(socket, length, timeoutMs = 30_000) {
@@ -233,17 +248,160 @@ function waitForBinaryBytes(socket, length, timeoutMs = 30_000) {
   });
 }
 
+function websocketDuplex(socket) {
+  const transport = new Duplex({
+    read() {
+      socket._socket?.resume();
+    },
+    write(chunk, _encoding, callback) {
+      if (socket.readyState !== WebSocket.OPEN) {
+        callback(new Error('tunnel WebSocket is not open'));
+        return;
+      }
+      socket.send(chunk, { binary: true }, callback);
+    },
+    final(callback) {
+      callback();
+    },
+  });
+  socket.on('message', (data, isBinary) => {
+    if (!isBinary) {
+      transport.destroy(new Error('tunnel emitted a non-binary data frame'));
+      return;
+    }
+    if (!transport.push(Buffer.from(data))) socket._socket?.pause();
+  });
+  socket.once('close', () => transport.push(null));
+  socket.once('error', (error) => transport.destroy(error));
+  return transport;
+}
+
+function decodeChunkedBody(input) {
+  let cursor = 0;
+  const chunks = [];
+  while (cursor < input.length) {
+    const lineEnd = input.indexOf('\r\n', cursor);
+    if (lineEnd < 0) return undefined;
+    const sizeText = input.subarray(cursor, lineEnd).toString('ascii').split(';', 1)[0];
+    const size = Number.parseInt(sizeText, 16);
+    if (!Number.isFinite(size)) throw new Error('Pelorus HTTP chunk size is invalid');
+    cursor = lineEnd + 2;
+    if (size === 0) return Buffer.concat(chunks);
+    if (input.length < cursor + size + 2) return undefined;
+    chunks.push(input.subarray(cursor, cursor + size));
+    cursor += size + 2;
+  }
+  return undefined;
+}
+
+function parseHttpResponse(response) {
+  const headerEnd = response.indexOf('\r\n\r\n');
+  if (headerEnd < 0) throw new Error('Pelorus HTTP response headers are incomplete');
+  const headerText = response.subarray(0, headerEnd).toString('latin1');
+  const status = Number(/^HTTP\/\d(?:\.\d)?\s+(\d{3})/.exec(headerText)?.[1]);
+  if (!Number.isInteger(status)) throw new Error('Pelorus HTTP response status is invalid');
+  const headers = new Map(headerText.split('\r\n').slice(1).map((line) => {
+    const colon = line.indexOf(':');
+    return [line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1).trim()];
+  }));
+  let body = response.subarray(headerEnd + 4);
+  if (/\bchunked\b/i.test(headers.get('transfer-encoding') || '')) {
+    body = decodeChunkedBody(body);
+    if (!body) throw new Error('Pelorus HTTP chunked response is incomplete');
+  }
+  const json = JSON.parse(body.toString('utf8'));
+  if (json === null || typeof json !== 'object') throw new Error('Pelorus response JSON must be an object');
+  return { status, headers, body, json };
+}
+
+function requestPelorusThroughTunnel(socket, hostHeader, timeoutMs = 15_000) {
+  return new Promise((resolve, reject) => {
+    const transport = websocketDuplex(socket);
+    const tlsSocket = tls.connect({
+      socket: transport,
+      rejectUnauthorized: false,
+      servername: 'webtop.internal',
+      minVersion: 'TLSv1.2',
+    });
+    const chunks = [];
+    let responseBytes = 0;
+    let settled = false;
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (!tlsSocket.destroyed) tlsSocket.destroy();
+      if (error) reject(error);
+      else resolve(result);
+    };
+    const timer = setTimeout(() => {
+      const error = new Error('Pelorus TLS/HTTP request timed out');
+      error.code = 'PELO_TIMEOUT';
+      finish(error);
+    }, timeoutMs);
+    tlsSocket.once('secureConnect', () => {
+      tlsSocket.write(
+        `GET /pelorus/api/state HTTP/1.0\r\nHost: ${hostHeader}:3001\r\nConnection: close\r\n\r\n`,
+      );
+    });
+    tlsSocket.on('data', (chunk) => {
+      responseBytes += chunk.length;
+      if (responseBytes > 4 * 1024 * 1024) {
+        const error = new Error('Pelorus HTTP response exceeded the test limit');
+        error.code = 'PELO_RESPONSE_TOO_LARGE';
+        finish(error);
+        return;
+      }
+      chunks.push(Buffer.from(chunk));
+    });
+    tlsSocket.once('end', () => {
+      try {
+        finish(undefined, parseHttpResponse(Buffer.concat(chunks, responseBytes)));
+      } catch (error) {
+        finish(error);
+      }
+    });
+    tlsSocket.once('error', (error) => {
+      const failure = new Error(`Pelorus TLS transport failed (${error.code || error.name})`);
+      failure.code = error.code || error.name;
+      finish(failure);
+    });
+    tlsSocket.once('close', () => {
+      if (!settled && responseBytes === 0) {
+        const error = new Error('Pelorus TLS stream closed before receiving an HTTP response');
+        error.code = 'PELO_EARLY_CLOSE';
+        finish(error);
+      }
+    });
+  });
+}
+
+async function waitForNoEstablishedConnection(fixture, host, port, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (fixture.establishedConnections(host, port).length === 0) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return fixture.establishedConnections(host, port).length === 0;
+}
+
 test('tcp tunnel WebSocket 僅接受 tunnel token，並拒絕 query token／destination', {
   timeout: 30_000,
 }, async () => {
   const temp = makeTaskTemp('sshdeck-ticket02-tunnel-auth-');
   const env = createServiceEnv(path.join(temp, 'service-home'));
+  const tokenSentinels = applyTicket03TokenSentinels(env);
   let service;
   const sockets = [];
   try {
     service = await startService({ env, port: 0 });
     const route = `/v1/hosts/unconfigured/tcp-tunnel`;
     const url = `${service.url.replace(/^http/, 'ws')}${route}`;
+    assert.equal(new URL(url).search, '', 'tunnel WebSocket URL 不得包含 credential query');
+    for (const sentinel of tokenSentinels) {
+      assert.equal(url.includes(sentinel), false, 'tunnel WebSocket URL 不得包含 token sentinel');
+    }
+    const responseBodies = [];
     const cases = [
       { name: '缺少 token', token: undefined, status: 401 },
       { name: '錯誤 token', token: 'invalid-tunnel-token', status: 401 },
@@ -254,15 +412,32 @@ test('tcp tunnel WebSocket 僅接受 tunnel token，並拒絕 query token／dest
     for (const item of cases) {
       const opened = await openSocket(url, item.token);
       sockets.push(opened.socket);
-      assert.equal(opened.status, item.status, `${item.name} 的 WebSocket upgrade 狀態錯誤：${opened.body || ''}`);
+      responseBodies.push(opened.body || '');
+      assert.equal(opened.status, item.status, `${item.name} 的 WebSocket upgrade 狀態錯誤`);
     }
     const tunnelTokenHttp = await api(service, '/v1/hosts', { token: env.SSHDECK_TUNNEL_TOKEN });
     assert.equal(tunnelTokenHttp.status, 403, 'tunnel token 不得呼叫既有 HTTP 管理 API');
+    responseBodies.push(tunnelTokenHttp.text);
 
     for (const query of ['?token=sentinel', '?targetHost=127.0.0.1&targetPort=22']) {
       const opened = await openSocket(`${url}${query}`, env.SSHDECK_TUNNEL_TOKEN);
       sockets.push(opened.socket);
+      responseBodies.push(opened.body || '');
       assert.equal(opened.status, 400, `tunnel endpoint 必須拒絕 query ${query}`);
+    }
+    const invalidTarget = await openSocket(url, env.SSHDECK_TUNNEL_TOKEN);
+    sockets.push(invalidTarget.socket);
+    assert.equal(invalidTarget.status, 101);
+    const control = await sendAndExpectError(
+      invalidTarget.socket,
+      JSON.stringify({ type: 'open', targetId: 'not-a-grant' }),
+      'TARGET_NOT_AUTHORIZED',
+      tokenSentinels,
+    );
+    responseBodies.push(JSON.stringify(control));
+    for (const sentinel of tokenSentinels) {
+      assert.equal(responseBodies.join('\n').includes(sentinel), false,
+        'HTTP/WebSocket authentication response 不得包含 token sentinel');
     }
   } finally {
     await Promise.all(sockets.map(closeSocket));
@@ -385,6 +560,468 @@ test('真實 Ubuntu OpenSSH direct-tcpip tunnel 傳送 binary bytes 並拒絕 Pe
     if (fixture) await fixture.cleanup();
     fs.rmSync(temp, { recursive: true, force: true });
   }
+});
+
+test('service restart 後舊 target ID 經 WebSocket 仍遭拒且不重開 SSH channel', {
+  timeout: 30_000,
+}, async () => {
+  const temp = makeTaskTemp('sshdeck-ticket03-restart-target-');
+  const env = createServiceEnv(path.join(temp, 'service-home'));
+  let service;
+  let mock;
+  let socket;
+  try {
+    service = await startService({ env, port: 0 });
+    const { targetId } = await createGrantedHost(service, env, 'ticket03-restart-target');
+    await service.closeAsync();
+    service = await startService({ env, port: 0 });
+    mock = installMockDirectTcpip();
+
+    const url = `${service.url.replace(/^http/, 'ws')}/v1/hosts/ticket03-restart-target/tcp-tunnel`;
+    const opened = await openSocket(url, env.SSHDECK_TUNNEL_TOKEN);
+    socket = opened.socket;
+    assert.equal(opened.status, 101);
+    await sendAndExpectError(
+      socket,
+      JSON.stringify({ type: 'open', targetId }),
+      'TARGET_NOT_AUTHORIZED',
+    );
+    assert.equal(mock.sessions.length, 0, 'restart 前的 target ID 不得重新綁定或開啟 SSH channel');
+  } finally {
+    await closeSocket(socket);
+    mock?.restore();
+    if (service) await service.closeAsync();
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('Ticket 03 真實 Ubuntu tunnel 經精確 PermitOpen 存取無 host-port Webtop/Pelorus', {
+  skip: process.platform !== 'win32' || process.env.SSHDECK_TEST_TICKET03_DOCKER !== '1'
+    ? '需要明確啟用 Ubuntu WSL native Docker Webtop acceptance'
+    : false,
+  timeout: 300_000,
+}, async () => {
+  const runId = randomUUID();
+  const dockerEvidenceFile = process.env.SSHDECK_TEST_TICKET03_DOCKER_EVIDENCE;
+  const sshEvidenceFile = process.env.SSHDECK_TEST_TUNNEL_FIXTURE_EVIDENCE;
+  const acceptanceEvidenceFile = process.env.SSHDECK_TEST_TICKET03_ACCEPTANCE_EVIDENCE;
+  assert.ok(dockerEvidenceFile && sshEvidenceFile && acceptanceEvidenceFile,
+    'Ticket 03 acceptance 必須指定三個外部 evidence file');
+
+  const temp = makeTaskTemp('sshdeck-ticket03-ubuntu-tunnel-');
+  const env = createServiceEnv(path.join(temp, 'service-home'));
+  const tokenSentinels = applyTicket03TokenSentinels(env);
+  const observableResponses = [];
+  const sockets = [];
+  const evidence = {
+    test: 'Ubuntu SSHDeck grant/WebSocket tunnel to Webtop/Pelorus',
+    runId,
+    image: null,
+    dockerTarget: null,
+    sshFixture: null,
+    sshPortPreflight: [],
+    managedIdentity: { imported: false, fingerprintPinned: false },
+    permitOpen: { exactContainerTarget: false, outOfScopeTargetDenied: false },
+    binaryEcho: { completed: false },
+    pelorus: { completed: false },
+    lifecycle: {
+      unauthorizedTargetDenied: false,
+      revokeClosedActiveStream: false,
+      clientCancellationClosedRemoteStream: false,
+      serviceLockInvalidatedOldTarget: false,
+      serviceRestartInvalidatedOldTarget: false,
+    },
+    tokenSentinelAudit: {
+      distinctSyntheticValues: true,
+      valuesWrittenToEvidence: false,
+      url: false,
+      query: false,
+      apiResponses: false,
+      websocketResponses: false,
+    },
+    cleanup: { status: 'pending' },
+  };
+  let webtopFixture;
+  let sshFixture;
+  let service;
+  let failure;
+
+  function assertNoTokenSentinel(text, boundary) {
+    const value = String(text || '');
+    for (const sentinel of tokenSentinels) {
+      assert.equal(value.includes(sentinel), false, `${boundary} 不得包含 token sentinel`);
+    }
+  }
+
+  async function auditedApi(...args) {
+    const result = await api(...args);
+    observableResponses.push(result.text);
+    assertNoTokenSentinel(result.text, 'service API response');
+    return result;
+  }
+
+  async function createGrant(alias, targetHost, targetPort) {
+    const response = await auditedApi(service, `/v1/hosts/${alias}/tcp-tunnel-targets`, {
+      method: 'POST',
+      token: env.SSHDECK_UI_TOKEN,
+      body: { targetHost, targetPort },
+    });
+    assert.equal(response.status, 201, 'service 必須建立精確 target grant');
+    assert.equal(typeof response.payload?.targetId, 'string');
+    return response.payload.targetId;
+  }
+
+  async function openGrantedTunnel(url, targetId) {
+    const opened = await openSocket(url, env.SSHDECK_TUNNEL_TOKEN);
+    sockets.push(opened.socket);
+    assert.equal(opened.status, 101, 'tunnel token 必須完成 WebSocket upgrade');
+    assertNoTokenSentinel(opened.body, 'WebSocket upgrade response');
+    const started = waitForControl(opened.socket, (message) => ['started', 'error'].includes(message.type), 20_000);
+    opened.socket.send(JSON.stringify({ type: 'open', targetId }));
+    const result = await started;
+    assertNoTokenSentinel(JSON.stringify(result), 'WebSocket control response');
+    return { socket: opened.socket, result };
+  }
+
+  try {
+    for (const port of [2227, 2228]) {
+      const result = await portAvailable(port);
+      evidence.sshPortPreflight.push({
+        port,
+        state: result.state,
+        ...(result.source ? { source: result.source } : {}),
+        ...(result.error ? { errorCode: result.error.code || result.error.name } : {}),
+      });
+      assert.equal(result.state, 'free',
+        `啟動 Docker/SSH fixture 前必須確認預留 SSH port ${port} 為 free`);
+    }
+
+    webtopFixture = createUbuntuWebtopFixture({
+      runId,
+      evidenceFile: dockerEvidenceFile,
+    });
+    evidence.image = webtopFixture.image;
+    evidence.dockerTarget = {
+      containerId: webtopFixture.containerId,
+      networkId: webtopFixture.networkId,
+      containerName: webtopFixture.containerName,
+      networkName: webtopFixture.networkName,
+      privateIp: webtopFixture.targetIp,
+      privatePort: 3001,
+      hostPortBindings: 'none',
+    };
+
+    const keyPair = utils.generateKeyPairSync('ed25519', { comment: 'sshdeck-ticket03-real-tunnel' });
+    sshFixture = await createOpenSshServiceFixture({
+      authorizedPublicKey: keyPair.public,
+      evidenceFile: sshEvidenceFile,
+      allowDirectTcpip: true,
+      permitOpenTargets: [{ host: webtopFixture.targetIp, port: 3001 }],
+    });
+    evidence.sshFixture = {
+      host: sshFixture.sshHost,
+      ports: sshFixture.ports,
+      echoTarget: { host: '127.0.0.1', port: sshFixture.targetPort },
+      permitOpenTargets: sshFixture.permitOpenTargets,
+    };
+    assert.deepEqual(sshFixture.permitOpenTargets, [`${webtopFixture.targetIp}:3001`],
+      'SSHD fixture 必須只額外 PermitOpen 至實際 container-private IP:3001');
+
+    service = await startService({ env, port: 0 });
+    const alias = `ticket03-${runId.replaceAll('-', '').slice(0, 10)}`;
+    const tunnelUrl = `${service.url.replace(/^http/, 'ws')}/v1/hosts/${alias}/tcp-tunnel`;
+    evidence.tokenSentinelAudit.url = true;
+    assertNoTokenSentinel(service.url, 'service URL');
+    assertNoTokenSentinel(tunnelUrl, 'WebSocket URL');
+    assert.equal(new URL(service.url).search, '', 'service URL 不得包含 query');
+    assert.equal(new URL(tunnelUrl).search, '', 'WebSocket URL 不得包含 query');
+    evidence.tokenSentinelAudit.query = true;
+
+    const host = {
+      alias,
+      hostname: sshFixture.sshHost,
+      port: sshFixture.ports[0],
+      username: 'root',
+    };
+    const addedHost = await auditedApi(service, '/v1/hosts', {
+      method: 'POST',
+      token: env.SSHDECK_UI_TOKEN,
+      body: host,
+    });
+    assert.equal(addedHost.status, 201);
+    const importedKey = await auditedApi(service, `/v1/hosts/${alias}/key/import`, {
+      method: 'POST',
+      token: env.SSHDECK_UI_TOKEN,
+      body: { privateKey: keyPair.private, passphrase: '' },
+    });
+    assert.equal(importedKey.status, 201, '隔離 SSH key 必須匯入 service-managed identity');
+    assert.equal(importedKey.text.includes(keyPair.private), false,
+      'service API response 不得回傳 imported private key');
+    const trusted = await auditedApi(service, `/v1/hosts/${alias}/check`, {
+      method: 'POST',
+      token: env.SSHDECK_UI_TOKEN,
+      body: { expectedFingerprint: sshFixture.fingerprints.a },
+    });
+    assert.equal(trusted.status, 200, '必須以預期 SHA-256 fingerprint pin 真實 Ubuntu SSH host');
+    evidence.managedIdentity = {
+      imported: true,
+      fingerprintPinned: true,
+      fingerprint: sshFixture.fingerprints.a,
+    };
+
+    const unauthorized = await openSocket(tunnelUrl, env.SSHDECK_TUNNEL_TOKEN);
+    sockets.push(unauthorized.socket);
+    assert.equal(unauthorized.status, 101);
+    assertNoTokenSentinel(unauthorized.body, 'WebSocket upgrade response');
+    const unauthorizedMessage = await sendAndExpectError(
+      unauthorized.socket,
+      JSON.stringify({ type: 'open', targetId: 'not-a-grant' }),
+      'TARGET_NOT_AUTHORIZED',
+      tokenSentinels,
+    );
+    assertNoTokenSentinel(JSON.stringify(unauthorizedMessage), 'WebSocket response');
+    evidence.lifecycle.unauthorizedTargetDenied = true;
+    evidence.tokenSentinelAudit.websocketResponses = true;
+
+    const echoTargetPort = sshFixture.targetPort;
+    const echoGrantId = await createGrant(alias, '127.0.0.1', echoTargetPort);
+    const echoTunnel = await openGrantedTunnel(tunnelUrl, echoGrantId);
+    assert.equal(echoTunnel.result.type, 'started', '真實 SSH direct-tcpip echo channel 必須成功');
+    const payload = randomBytes(512 * 1024);
+    const echoResult = waitForBinaryBytes(echoTunnel.socket, payload.length, 30_000);
+    const frameSize = 32 * 1024;
+    for (let offset = 0; offset < payload.length; offset += frameSize) {
+      echoTunnel.socket.send(payload.subarray(offset, Math.min(offset + frameSize, payload.length)), { binary: true });
+    }
+    const echoed = await echoResult;
+    assert.deepEqual(echoed, payload, '真實 Ubuntu direct-tcpip tunnel 必須雙向逐 byte 傳回 binary payload');
+    evidence.binaryEcho = {
+      completed: true,
+      bytes: payload.length,
+      sha256: createHash('sha256').update(echoed).digest('hex'),
+    };
+    await closeSocket(echoTunnel.socket);
+
+    const webtopGrantId = await createGrant(alias, webtopFixture.targetIp, 3001);
+    const pelorusDeadline = Date.now() + 90_000;
+    let pelorusResponse;
+    let pelorusLastFailure;
+    while (!pelorusResponse && Date.now() < pelorusDeadline) {
+      let attemptSocket;
+      try {
+        const opened = await openSocket(tunnelUrl, env.SSHDECK_TUNNEL_TOKEN);
+        attemptSocket = opened.socket;
+        sockets.push(attemptSocket);
+        assert.equal(opened.status, 101, 'tunnel token 必須完成 WebSocket upgrade');
+        assertNoTokenSentinel(opened.body, 'WebSocket upgrade response');
+        const controlPromise = waitForControl(
+          attemptSocket,
+          (message) => ['started', 'error'].includes(message.type),
+          15_000,
+        );
+        attemptSocket.send(JSON.stringify({ type: 'open', targetId: webtopGrantId }));
+        const control = await controlPromise;
+        assertNoTokenSentinel(JSON.stringify(control), 'WebSocket control response');
+        if (control.type === 'error') {
+          pelorusLastFailure = control.code || 'TUNNEL_OPEN_FAILED';
+          if (['TARGET_NOT_AUTHORIZED', 'DIRECT_TCPIP_DENIED'].includes(pelorusLastFailure)) {
+            throw Object.assign(new Error('exact Webtop grant or PermitOpen was rejected'), {
+              code: pelorusLastFailure,
+            });
+          }
+        } else {
+          const response = await requestPelorusThroughTunnel(attemptSocket, webtopFixture.targetIp);
+          if (response.status === 200) {
+            assertNoTokenSentinel(JSON.stringify(response.json), 'Pelorus JSON response');
+            pelorusResponse = response;
+          } else {
+            pelorusLastFailure = `HTTP_${response.status}`;
+          }
+        }
+      } catch (error) {
+        pelorusLastFailure = error.code || error.name;
+        if (['TARGET_NOT_AUTHORIZED', 'DIRECT_TCPIP_DENIED'].includes(pelorusLastFailure)) throw error;
+      } finally {
+        await closeSocket(attemptSocket);
+      }
+      if (!pelorusResponse) await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    assert.ok(pelorusResponse, `Pelorus endpoint was not ready within deadline (${pelorusLastFailure || 'unknown'})`);
+    evidence.pelorus = {
+      completed: true,
+      requestPath: '/pelorus/api/state',
+      status: pelorusResponse.status,
+      responseBytes: pelorusResponse.body.length,
+      responseSha256: createHash('sha256').update(pelorusResponse.body).digest('hex'),
+      jsonType: Array.isArray(pelorusResponse.json) ? 'array' : 'object',
+    };
+    evidence.permitOpen.exactContainerTarget = true;
+    evidence.tokenSentinelAudit.apiResponses = true;
+
+    const deniedPortGrantId = await createGrant(alias, webtopFixture.targetIp, 3002);
+    const deniedPortTunnel = await openSocket(tunnelUrl, env.SSHDECK_TUNNEL_TOKEN);
+    sockets.push(deniedPortTunnel.socket);
+    assert.equal(deniedPortTunnel.status, 101);
+    await sendAndExpectError(
+      deniedPortTunnel.socket,
+      JSON.stringify({ type: 'open', targetId: deniedPortGrantId }),
+      'DIRECT_TCPIP_DENIED',
+      tokenSentinels,
+    );
+    evidence.permitOpen.outOfScopeTargetDenied = true;
+
+    const revocableGrantId = await createGrant(alias, webtopFixture.targetIp, 3001);
+    const revocableTunnel = await openGrantedTunnel(tunnelUrl, revocableGrantId);
+    assert.equal(revocableTunnel.result.type, 'started');
+    assert.ok(sshFixture.establishedConnections(webtopFixture.targetIp, 3001).length > 0,
+      'revoke 前必須存在通往真實 container-private endpoint 的 SSH channel');
+    const revokeControl = waitForControl(revocableTunnel.socket, (message) => message.type === 'error');
+    const revokeClose = waitForSocketClose(revocableTunnel.socket);
+    const revoked = await auditedApi(
+      service,
+      `/v1/hosts/${alias}/tcp-tunnel-targets/${revocableGrantId}`,
+      { method: 'DELETE', token: env.SSHDECK_UI_TOKEN },
+    );
+    assert.equal(revoked.status, 204);
+    const [revokeMessage] = await Promise.all([revokeControl, revokeClose]);
+    assertNoTokenSentinel(JSON.stringify(revokeMessage), 'WebSocket revoke response');
+    assert.equal(revokeMessage.code, 'TARGET_GRANT_INVALIDATED');
+    assert.equal(await waitForNoEstablishedConnection(sshFixture, webtopFixture.targetIp, 3001), true,
+      'grant revoke 必須關閉真實 SSH direct-tcpip channel');
+    evidence.lifecycle.revokeClosedActiveStream = true;
+
+    const cancelGrantId = await createGrant(alias, '127.0.0.1', echoTargetPort);
+    const cancelTunnel = await openGrantedTunnel(tunnelUrl, cancelGrantId);
+    assert.equal(cancelTunnel.result.type, 'started');
+    assert.ok(sshFixture.establishedConnections('127.0.0.1', echoTargetPort).length > 0,
+      'client cancel 前必須存在 direct-tcpip echo channel');
+    const cancelClosed = waitForSocketClose(cancelTunnel.socket);
+    cancelTunnel.socket.terminate();
+    await cancelClosed;
+    assert.equal(await waitForNoEstablishedConnection(sshFixture, '127.0.0.1', echoTargetPort), true,
+      'client cancellation 必須關閉 Ubuntu SSH direct-tcpip channel');
+    evidence.lifecycle.clientCancellationClosedRemoteStream = true;
+
+    const lockedGrantId = await createGrant(alias, '127.0.0.1', echoTargetPort);
+    const lockedTunnel = await openGrantedTunnel(tunnelUrl, lockedGrantId);
+    assert.equal(lockedTunnel.result.type, 'started');
+    const lockControl = waitForControl(lockedTunnel.socket, (message) => message.type === 'error');
+    const lockClose = waitForSocketClose(lockedTunnel.socket);
+    const lock = await auditedApi(service, '/v1/lock', {
+      method: 'POST',
+      token: env.SSHDECK_UI_TOKEN,
+      body: {},
+    });
+    assert.equal(lock.status, 204);
+    const [lockMessage] = await Promise.all([lockControl, lockClose]);
+    assertNoTokenSentinel(JSON.stringify(lockMessage), 'WebSocket lock response');
+    assert.equal(lockMessage.code, 'TARGET_GRANT_INVALIDATED');
+    const unlock = await auditedApi(service, '/v1/unlock', {
+      method: 'POST',
+      token: env.SSHDECK_UI_TOKEN,
+      body: {},
+    });
+    assert.equal(unlock.status, 204);
+    const staleAfterUnlock = await openSocket(tunnelUrl, env.SSHDECK_TUNNEL_TOKEN);
+    sockets.push(staleAfterUnlock.socket);
+    assert.equal(staleAfterUnlock.status, 101);
+    await sendAndExpectError(
+      staleAfterUnlock.socket,
+      JSON.stringify({ type: 'open', targetId: lockedGrantId }),
+      'TARGET_NOT_AUTHORIZED',
+      tokenSentinels,
+    );
+    evidence.lifecycle.serviceLockInvalidatedOldTarget = true;
+
+    const oldIdBeforeRestart = await createGrant(alias, webtopFixture.targetIp, 3001);
+    const stoppedService = service;
+    service = undefined;
+    await stoppedService.closeAsync();
+    service = await startService({ env, port: 0 });
+    const restartedTunnel = await openSocket(
+      `${service.url.replace(/^http/, 'ws')}/v1/hosts/${alias}/tcp-tunnel`,
+      env.SSHDECK_TUNNEL_TOKEN,
+    );
+    sockets.push(restartedTunnel.socket);
+    assert.equal(restartedTunnel.status, 101);
+    await sendAndExpectError(
+      restartedTunnel.socket,
+      JSON.stringify({ type: 'open', targetId: oldIdBeforeRestart }),
+      'TARGET_NOT_AUTHORIZED',
+      tokenSentinels,
+    );
+    evidence.lifecycle.serviceRestartInvalidatedOldTarget = true;
+    evidence.tokenSentinelAudit.apiResponses = observableResponses.every(
+      (text) => tokenSentinels.every((sentinel) => !text.includes(sentinel)),
+    );
+    evidence.tokenSentinelAudit.websocketResponses = true;
+  } catch (error) {
+    failure = error;
+  }
+
+  const cleanupErrors = [];
+  try {
+    await Promise.all(sockets.map(closeSocket));
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  if (service) {
+    try {
+      await service.closeAsync();
+      service = undefined;
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+  if (service === undefined) {
+    try {
+      fs.rmSync(temp, { recursive: true, force: true });
+      evidence.cleanup.serviceDataRemoved = true;
+    } catch (error) {
+      cleanupErrors.push(error);
+      evidence.cleanup.serviceDataRemoved = false;
+    }
+  } else {
+    evidence.cleanup.serviceDataRemoved = false;
+  }
+  if (sshFixture) {
+    try {
+      await sshFixture.cleanup();
+      evidence.cleanup.sshFixture = 'passed';
+    } catch (error) {
+      cleanupErrors.push(error);
+      evidence.cleanup.sshFixture = 'incomplete';
+    }
+  }
+  if (webtopFixture) {
+    try {
+      await webtopFixture.cleanup();
+      evidence.cleanup.webtopFixture = 'passed';
+    } catch (error) {
+      cleanupErrors.push(error);
+      evidence.cleanup.webtopFixture = 'incomplete';
+    }
+  }
+  evidence.cleanup.status = cleanupErrors.length ? 'incomplete' : 'passed';
+  evidence.cleanup.errors = cleanupErrors.map((error) => ({
+    name: error.name,
+    code: error.code || null,
+  }));
+  evidence.finishedAt = new Date().toISOString();
+  if (failure) evidence.failure = { name: failure.name, code: failure.code || null };
+  try {
+    fs.writeFileSync(acceptanceEvidenceFile, `${JSON.stringify(evidence, null, 2)}\n`, {
+      encoding: 'utf8',
+      flag: 'wx',
+    });
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  if (failure && cleanupErrors.length) {
+    throw new AggregateError([failure, ...cleanupErrors], 'Ticket 03 acceptance and cleanup failed', { cause: failure });
+  }
+  if (failure) throw failure;
+  if (cleanupErrors.length) throw new AggregateError(cleanupErrors, 'Ticket 03 acceptance cleanup failed');
 });
 
 test('tcp tunnel 只接受首個有效 open text frame 並 fail closed 拒絕無效輸入', {
@@ -630,6 +1267,17 @@ test('grant revoke 與 host update/removal 先關閉相符 streams 且不影響�
     assert.equal(secondSocket.readyState, WebSocket.CLOSED,
       'host update response 完成前必須關閉該 alias 的 streams');
     assert.equal(otherHostSocket.readyState, WebSocket.OPEN);
+    const staleAfterHostUpdate = await openSocket(
+      `${service.url.replace(/^http/, 'ws')}/v1/hosts/${firstAlias}/tcp-tunnel`,
+      env.SSHDECK_TUNNEL_TOKEN,
+    );
+    sockets.push(staleAfterHostUpdate.socket);
+    assert.equal(staleAfterHostUpdate.status, 101);
+    await sendAndExpectError(
+      staleAfterHostUpdate.socket,
+      JSON.stringify({ type: 'open', targetId: firstTarget.payload.targetId }),
+      'TARGET_NOT_AUTHORIZED',
+    );
 
     const removedControl = waitForControl(otherHostSocket, (message) => message.type === 'error');
     const removedClose = waitForSocketClose(otherHostSocket);
@@ -805,6 +1453,17 @@ test('key unlink、lock、client disconnect、SSH channel error 與 shutdown 都
       body: {},
     });
     assert.equal(replacementKey.status, 201);
+    const staleAfterKeyReplacement = await openSocket(
+      `${service.url.replace(/^http/, 'ws')}/v1/hosts/${alias}/tcp-tunnel`,
+      env.SSHDECK_TUNNEL_TOKEN,
+    );
+    sockets.push(staleAfterKeyReplacement.socket);
+    assert.equal(staleAfterKeyReplacement.status, 101);
+    await sendAndExpectError(
+      staleAfterKeyReplacement.socket,
+      JSON.stringify({ type: 'open', targetId: targetIdBeforeUnlink }),
+      'TARGET_NOT_AUTHORIZED',
+    );
     grant = await createTargetGrant(service, env, alias);
     socket = await connectGrantedTunnel(service, env, alias, grant.payload.targetId);
     sockets.push(socket);

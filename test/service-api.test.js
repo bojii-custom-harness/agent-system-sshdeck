@@ -11,6 +11,7 @@ const { startService } = require('../lib/service-server');
 const { ENVELOPE_FORMAT } = require('../lib/service-store');
 const {
   api,
+  applyTicket03TokenSentinels,
   createServiceEnv,
   forceKillCli,
   makeTaskTemp,
@@ -115,6 +116,7 @@ test('service API 加密憑證、雙重認證、鎖定／重啟與損壞資料 f
   const serviceHome = path.join(temp, 'service-data');
   const standaloneHome = path.join(temp, 'standalone-data');
   const env = createServiceEnv(serviceHome);
+  const tokenSentinels = applyTicket03TokenSentinels(env);
   let server;
   try {
     const conflictingHome = path.join(temp, 'shared-data');
@@ -133,8 +135,18 @@ test('service API 加密憑證、雙重認證、鎖定／重啟與損壞資料 f
     assert.equal(fs.existsSync(serviceHome), false, '缺少解密金鑰時不得建立或改寫服務資料');
 
     server = await startService({ env, port: 0 });
-    assert.equal((await api(server, '/v1/health')).payload.protocolVersion, 1);
-    assert.equal((await api(server, '/v1/version')).payload.protocolVersion, 1);
+    assert.equal(new URL(server.url).search, '', 'service URL 不得包含 token query');
+    assert.equal(tokenSentinels.some((sentinel) => server.url.includes(sentinel)), false,
+      'service URL 不得包含 token sentinel');
+    const health = await api(server, '/v1/health');
+    const version = await api(server, '/v1/version');
+    assert.equal(health.payload.protocolVersion, 1);
+    assert.equal(version.payload.protocolVersion, 1);
+    for (const response of [health.text, version.text]) {
+      for (const sentinel of tokenSentinels) {
+        assert.equal(response.includes(sentinel), false, 'service API response 不得包含 token sentinel');
+      }
+    }
     assert.equal((await api(server, '/v1/hosts')).status, 401);
     assert.equal((await api(server, '/v1/hosts', { token: env.SSHDECK_SERVICE_TOKEN })).status, 200);
     assert.equal((await api(server, '/v1/keys', { token: env.SSHDECK_SERVICE_TOKEN })).status, 403);
@@ -189,6 +201,9 @@ test('service API 加密憑證、雙重認證、鎖定／重啟與損壞資料 f
     assert.equal(responses.includes(env.SSHDECK_SERVICE_TOKEN), false, 'API 不得回傳 CLI token');
     assert.equal(responses.includes(env.SSHDECK_UI_TOKEN), false, 'API 不得回傳 UI token');
     assert.equal(responses.includes(env.SSHDECK_TUNNEL_TOKEN), false, 'API 不得回傳 tunnel token');
+    for (const sentinel of tokenSentinels) {
+      assert.equal(responses.includes(sentinel), false, 'service API response 不得包含 token sentinel');
+    }
 
     const listed = await api(server, '/v1/keys', { token: env.SSHDECK_UI_TOKEN });
     assert.equal(listed.status, 200);
@@ -228,6 +243,10 @@ test('service API 加密憑證、雙重認證、鎖定／重啟與損壞資料 f
     assert.equal(listedFromCli.code, 0);
     assert.match(listedFromCli.stdout, /import-target/);
     assert.equal(listedFromCli.stdout.includes('standalone-only'), false, 'service mode 不得讀取 standalone 資料');
+    for (const sentinel of tokenSentinels) {
+      assert.equal(`${listedFromCli.stdout}\n${listedFromCli.stderr}`.includes(sentinel), false,
+        'headless CLI 可讀輸出不得包含 token sentinel');
+    }
 
     const lockedCli = spawnCli(['exec', 'import-target', '--', 'printf should-not-run'], {
       env: cliEnvironment(server, env, standaloneHome),
@@ -361,6 +380,7 @@ test('service start CLI 啟動健康端點，終止後不留背景程序', { tim
     SSHDECK_HOME: path.join(temp, 'standalone-data'),
     SSHDECK_MODE: 'standalone',
   };
+  const tokenSentinels = applyTicket03TokenSentinels(env);
   let serviceCli;
   let stopped = false;
   try {
@@ -369,12 +389,7 @@ test('service start CLI 啟動健康端點，終止後不留背景程序', { tim
       deadlineMs: 30_000,
     });
     await waitForOutput(serviceCli, 'stdout', 'sshdeck service：http://127.0.0.1:', 10_000, 'service start CLI 啟動');
-    const secrets = [
-      env.SSHDECK_SERVICE_TOKEN,
-      env.SSHDECK_UI_TOKEN,
-      env.SSHDECK_TUNNEL_TOKEN,
-      env.SSHDECK_ENCRYPTION_KEY,
-    ];
+    const secrets = [...tokenSentinels, env.SSHDECK_ENCRYPTION_KEY];
     for (const secret of secrets) {
       assert.equal(serviceCli.child.spawnargs.some((argument) => argument.includes(secret)), false,
         'service process argv 不得包含 server-side 憑證');
@@ -386,7 +401,11 @@ test('service start CLI 啟動健康端點，終止後不留背景程序', { tim
     assert.equal(new URL(url).search, '', 'service URL 不得包含憑證 query');
     const health = await fetch(`${url}/v1/health`, { signal: AbortSignal.timeout(3000) });
     assert.equal(health.status, 200);
-    assert.equal((await health.json()).status, 'ok');
+    const healthText = await health.text();
+    assert.equal(JSON.parse(healthText).status, 'ok');
+    for (const sentinel of tokenSentinels) {
+      assert.equal(healthText.includes(sentinel), false, 'service API response 不得包含 token sentinel');
+    }
 
     const killed = forceKillCli(serviceCli.child);
     assert.ok(killed.status === 0 || killed.status === 128 || killed.status === 255,

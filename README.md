@@ -62,7 +62,7 @@ git push origin "v$version"
 
 次版／主版可改用 `npm version minor`／`npm version major`，推送對應的新 tag。每個版本使用新的 tag；可在 GitHub Actions 的 `Release CLI` 查看結果。`private: true` 僅防止誤發佈至 npm registry，不影響 HTTPS tarball 安裝。
 
-SSH 傳輸與 SSHDeck service 測試使用專用、可丟棄的 OpenSSH fixture；它們不會因設定 `SSHDECK_TEST_SSH_*` 而啟用遠端 Docker 測試。Windows 的 service E2E 以本機 WSL Ubuntu/systemd 啟動兩個 transient OpenSSH targets；確認 `2227`／`2228` 未被占用後，設定 `$env:SSHDECK_TEST_SERVICE_SSH = '1'` 再執行 `npm test`。測試產生隨機金鑰，並清理本次唯一 systemd units、fixture 目錄及 ports，不使用 Docker。Docker 權限測試另需專用 OpenSSH/Docker fixture，只有設定 `SSHDECK_TEST_DOCKER_*` 才會啟用；測試會在 fixture 中建立／刪除唯一 `sshdeck-test-ticket06-*` 容器或調整名為 `sshdeck-test-ssh` 的容器帳號群組。不可指向正式主機或共用 Docker daemon，也不要使用個人或生產私鑰。
+SSH 傳輸與 SSHDeck service 測試使用專用、可丟棄的 OpenSSH fixture；它們不會因設定 `SSHDECK_TEST_SSH_*` 而啟用遠端 Docker 測試。Windows 的 service E2E 以本機 WSL Ubuntu/systemd 啟動兩個 transient OpenSSH targets；確認 `2227`／`2228` 未被占用後，設定 `$env:SSHDECK_TEST_SERVICE_SSH = '1'` 再執行 `npm test`。測試產生隨機金鑰，並清理本次唯一 systemd units、fixture 目錄及 ports，不使用 Docker。Ticket 03 的私有 Webtop/Pelorus 驗收另以 `$env:SSHDECK_TEST_TICKET03_DOCKER = '1'` 啟用；它只使用原生 Ubuntu WSL Docker Engine、run-scoped network/container 與 pinned Webtop image digest，不發布 host port，並清理本次資源。Docker 權限測試另需專用 OpenSSH/Docker fixture，只有設定 `SSHDECK_TEST_DOCKER_*` 才會啟用；測試會在 fixture 中建立／刪除唯一 `sshdeck-test-ticket06-*` 容器或調整名為 `sshdeck-test-ssh` 的容器帳號群組。不可指向正式主機或共用 Docker daemon，也不要使用個人或生產私鑰。
 
 設定測試主機位址、埠、兩個測試登入金鑰及經可信管道核對的 SHA-256 host fingerprint 後執行 `npm test`。若要涵蓋加密金鑰登入情境，另設 `SSHDECK_TEST_SSH_KEY_A_ENCRYPTED`。測試私鑰須為隔離測試用金鑰，切勿使用個人或生產私鑰：
 
@@ -77,7 +77,7 @@ npm test
 
 Linux shell 可用相同變數名稱執行 `export SSHDECK_TEST_SSH_HOST=...` 等指令；macOS 的程式碼相容性路徑保留，但本輪不執行測試。完整測試 fixture 帳號、權限與各平台的執行證據詳見 `.scratch/sshdeck/issues/07-cross-platform-acceptance.md` 及前置票單。
 
-SSHDeck service protocol 與 headless CLI 的版本化 API、加密保存、認證、信任、鎖定及串流契約見 [`docs/service-api.md`](docs/service-api.md)。服務入口是 `sshdeck service start`；服務與 standalone 資料根目錄分離。CLI 需明確設定 `SSHDECK_MODE=service`、`SSHDECK_SERVICE_URL`、`SSHDECK_SERVICE_TOKEN`，錯誤時不會提示密語或回退到 standalone。服務啟動另需絕對路徑 `SSHDECK_SERVICE_HOME`、獨立 `SSHDECK_ENCRYPTION_KEY`、不同的 server-side `SSHDECK_UI_TOKEN`，以及至少 32 字元、與其他憑證及加密金鑰相異的 server-side `SSHDECK_TUNNEL_TOKEN`。
+SSHDeck service protocol 與 headless CLI 的版本化 API、認證、信任、鎖定、target grant 及 TCP tunnel 契約見 [`docs/service-api.md`](docs/service-api.md)；環境變數角色與部署隔離見 [`docs/service-deployment.md`](docs/service-deployment.md)。服務入口是 `sshdeck service start`；服務與 standalone 資料根目錄分離。CLI 需明確設定 `SSHDECK_MODE=service`、`SSHDECK_SERVICE_URL`、`SSHDECK_SERVICE_TOKEN`，錯誤時不會提示密語或回退到 standalone。服務啟動另需絕對路徑 `SSHDECK_SERVICE_HOME`、獨立 `SSHDECK_ENCRYPTION_KEY`、server-side `SSHDECK_UI_TOKEN` 及互不相同的 server-side `SSHDECK_TUNNEL_TOKEN`；三種 token 各有不同 role，均不得放入 URL、query 或 browser-visible data。
 
 ### 服務模式管理介面
 

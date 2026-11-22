@@ -87,6 +87,27 @@ Target grant 管理由受信任的 server-side 呼叫端直接使用 `SSHDECK_UI
 
 DELETE 成功或指定 alias 下的 grant 已不存在時均回 `204`。若同一 ID 是其他 alias 的 grant，要求仍以 `204` 冪等回覆，但不會撤銷另一 alias 的 grant。Service restart、lock、host profile／關聯 managed-key profile 更新或 host removal，以及 managed key create/import/link/unlink/removal，會清除受影響 grants；host fingerprint trust 改變也會立即清除該 alias 的 grants。舊 ID 不會因 host/key 重新新增、關聯，或 fingerprint 從 A 輪替至 B 再回 A 而復活。
 
+## TCP tunnel WebSocket（protocol v1）
+
+Tunnel endpoint 是 `GET /v1/hosts/{alias}/tcp-tunnel`，使用標準 WebSocket upgrade，並只接受 `Authorization: Bearer <SSHDECK_TUNNEL_TOKEN>`。CLI token 與 UI token 即使有效也會以 `403` 拒絕；缺少或錯誤 token 回 `401`。路徑不得帶 query string。呼叫端須是受信任的 server-side tunnel consumer；在 SSHDeck package 邊界內，token 不得放入 URL、query、process argv、CLI/API/WebSocket response、browser-visible data、一般 log 或隨包 agent/skill 文件。此契約不涵蓋外部 Agent System backend/browser/Bot runtime。
+
+Endpoint 不接受呼叫端指定目的 host／port。WebSocket upgrade 後，client 必須先送出唯一 JSON text frame，且只包含已由 grant API 取得的 `targetId`：
+
+```json
+{ "type": "open", "targetId": "<opaque-target-id>" }
+```
+
+```text
+WebSocket: ws(s)://<service-authority>/v1/hosts/<alias>/tcp-tunnel
+Authorization: Bearer <server-side SSHDECK_TUNNEL_TOKEN>
+```
+
+Service 會再次確認 opaque ID 與 URL alias 相符、grant 尚有效、service 未鎖定，並以 grant 內綁定的 host profile、managed key、trusted fingerprint 及精確 IP literal／port 開啟 SSH `direct-tcpip` channel。成功時回 `{ "type": "started" }`；未授權 target 回 `TARGET_NOT_AUTHORIZED`，被 SSH `PermitOpen` 拒絕時回 `DIRECT_TCPIP_DENIED`。Client 不可在 frame 指定或覆寫目的地；Tunnel token 本身也不授予建立／撤銷 grant、讀取主機資料、執行命令或開啟 PTY 的權限。
+
+收到 `started` 後，雙向只允許 binary frame，並原樣傳遞 TCP stream bytes；每個 WebSocket 對應獨立的 SSH channel。每條連線只可成功 open 一次。Client 關閉 WebSocket、service shutdown、service lock、grant revoke 或該 alias 的 host/key/trust profile 失效時，service 會取消尚未完成的 channel 開啟並關閉對應 stream，不自動重連或重送。關閉本機 channel 不保證目的端應用程式停止已開始的工作。
+
+Target grant 路由與 tunnel WebSocket 都是直接的 service-side API；SSHDeck UI adapter 不代理或公開它們。Grant 管理使用 server-side UI token；建立 tunnel 使用獨立 tunnel token。若 service 經 HTTPS ingress 對外提供，client 使用 `wss://`，TLS termination、私有網路與呼叫端存取控制由部署負責；service 本身不提供 TLS。
+
 ### 服務內部 grant lifecycle subscription
 
 Service instance 提供僅供 server-side tunnel handler 使用的 `subscribeTunnelTargetGrantInvalidation(listener)`；它不是 HTTP route，不由 UI adapter、瀏覽器、CLI 或 Bot 暴露／呼叫。訂閱會回傳可重複呼叫的解除訂閱函式。每個實際失效的 grant 會通知 `{ "alias": "...", "targetId": "...", "reason": "..." }`；沒有受影響 grant 時不產生事件。原因值包含 `revoked`、`service-locked`、`host-updated`、`host-removed`、`host-key-unlinked`、`host-key-linked`、`managed-key-created`、`managed-key-imported`、`managed-key-removed`、`fingerprint-trust-changed` 與 `service-shutdown`。`host-updated` 包含 host 設定及其關聯 managed-key profile 更新。
