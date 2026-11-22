@@ -85,7 +85,15 @@ Target grant 管理由受信任的 server-side 呼叫端直接使用 `SSHDECK_UI
 
 成功建立回 `201` 與 `{ "targetId": "..." }`。ID 使用 CSPRNG 產生，至少具 128-bit 隨機熵；grant 綁定單一 host alias、該 host/key profile 與已信任的 host fingerprint，只保存在 service 記憶體，不寫入持久資料，也沒有列舉 API。Target grant 不包含或回傳 SSH private key／passphrase。
 
-DELETE 成功或指定 alias 下的 grant 已不存在時均回 `204`。若同一 ID 是其他 alias 的 grant，要求仍以 `204` 冪等回覆，但不會撤銷另一 alias 的 grant。Service restart、lock、host profile／關聯 managed-key profile 更新或 host removal，以及 managed key create/import/link/unlink/removal，會清除受影響 grants；舊 ID 不會因 host/key 重新新增、關聯或重新 trust 而復活。Tunnel stream 的建立與生命週期由後續 tunnel endpoint 契約負責；本 API 不建立 WebSocket、SSH channel 或 TCP stream。
+DELETE 成功或指定 alias 下的 grant 已不存在時均回 `204`。若同一 ID 是其他 alias 的 grant，要求仍以 `204` 冪等回覆，但不會撤銷另一 alias 的 grant。Service restart、lock、host profile／關聯 managed-key profile 更新或 host removal，以及 managed key create/import/link/unlink/removal，會清除受影響 grants；host fingerprint trust 改變也會立即清除該 alias 的 grants。舊 ID 不會因 host/key 重新新增、關聯，或 fingerprint 從 A 輪替至 B 再回 A 而復活。
+
+### 服務內部 grant lifecycle subscription
+
+Service instance 提供僅供 server-side tunnel handler 使用的 `subscribeTunnelTargetGrantInvalidation(listener)`；它不是 HTTP route，不由 UI adapter、瀏覽器、CLI 或 Bot 暴露／呼叫。訂閱會回傳可重複呼叫的解除訂閱函式。每個實際失效的 grant 會通知 `{ "alias": "...", "targetId": "...", "reason": "..." }`；沒有受影響 grant 時不產生事件。原因值包含 `revoked`、`service-locked`、`host-updated`、`host-removed`、`host-key-unlinked`、`host-key-linked`、`managed-key-created`、`managed-key-imported`、`managed-key-removed`、`fingerprint-trust-changed` 與 `service-shutdown`。`host-updated` 包含 host 設定及其關聯 managed-key profile 更新。
+
+通知前 service 先從可授權狀態移除所有受影響 grants；subscriber 執行時再次 lookup 已撤銷的 ID 必須失敗。相關操作會等待 async subscribers 完成後才回成功；尤其 DELETE 只會在通知完成後回 `204`。Subscriber rejection 不會恢復 grant，也不會回報操作成功；service 會移除失敗的 subscriber，並以 `502 TUNNEL_INVALIDATION_FAILED` 回報，不將 subscriber 的錯誤內容帶入回應。Service shutdown 亦會先撤銷並通知，再完成關閉；一般 service restart 不保存 grants 或 subscriptions。
+
+此 subscription 是後續 tunnel handler 可等待連線清理的共用 lifecycle seam，不代表本版本已建立 WebSocket tunnel、SSH `direct-tcpip` channel 或 TCP stream；active stream 的建立、取消與關閉仍由後續 tunnel endpoint 契約負責。
 
 ## 串流、取消與錯誤
 

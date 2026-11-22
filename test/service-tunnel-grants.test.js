@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
+const { Server: SshServer, utils } = require('ssh2');
 const { startService } = require('../lib/service-server');
 const ssh = require('../lib/ssh');
 const { api, createServiceEnv, makeTaskTemp } = require('./helpers/service-test-utils');
@@ -61,6 +62,36 @@ function snapshotFiles(directory) {
   };
   visit(directory);
   return files;
+}
+
+function createSshHostKey() {
+  const pair = utils.generateKeyPairSync('ed25519');
+  const parsed = utils.parseKey(Buffer.from(pair.private));
+  return {
+    privateKey: Buffer.from(pair.private),
+    fingerprint: ssh.fingerprint(parsed.getPublicSSH()),
+  };
+}
+
+function startSshFingerprintPeer(privateKey, port = 0) {
+  const server = new SshServer({ hostKeys: [privateKey] }, (client) => {
+    client.on('authentication', (context) => context.accept());
+  });
+  return new Promise((resolve, reject) => {
+    const onError = (error) => reject(error);
+    server.once('error', onError);
+    server.listen(port, '127.0.0.1', () => {
+      server.off('error', onError);
+      resolve(server);
+    });
+  });
+}
+
+function closeSshFingerprintPeer(server) {
+  if (!server) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
 }
 
 test('UI token 建立並撤銷綁定已信任 managed host 的精確 TCP target grant', {
@@ -202,6 +233,213 @@ test('UI token 建立並撤銷綁定已信任 managed host 的精確 TCP target 
     assert.deepEqual(snapshotFiles(serviceHome), baseFiles,
       'target grant 建立與撤銷只改記憶體，不得寫入服務資料');
   } finally {
+    if (service) await service.closeAsync();
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('grant invalidation subscription 收到 alias-scoped 撤銷事件且撤銷先於通知', {
+  timeout: 30_000,
+}, async () => {
+  const temp = makeTaskTemp('sshdeck-ticket01-invalidation-event-');
+  const env = createServiceEnv(path.join(temp, 'service-home'));
+  let service;
+  try {
+    service = await startService({ env, port: 0 });
+    await createHost(service, env, { alias: 'event-one' });
+    await createHost(service, env, { alias: 'event-two', hostname: '192.0.2.12', port: 2228 });
+    const targetId = await createGrant(service, env, 'event-one');
+    const unrelatedTargetId = await createGrant(service, env, 'event-two');
+    const events = [];
+    const unsubscribe = service.subscribeTunnelTargetGrantInvalidation((event) => {
+      events.push(event);
+      assert.equal(service.getTunnelTargetGrant(event.alias, event.targetId), undefined,
+        'subscriber 執行前 grant 必須已不可授權');
+      assert.equal(Boolean(service.getTunnelTargetGrant('event-two', unrelatedTargetId)), true,
+        '單一 alias 撤銷不得影響其他 alias grant');
+    });
+    const revoke = await api(service, `/v1/hosts/event-one/tcp-tunnel-targets/${targetId}`, {
+      method: 'DELETE',
+      token: env.SSHDECK_UI_TOKEN,
+    });
+    assert.equal(revoke.status, 204);
+    assert.deepEqual(events, [{
+      alias: 'event-one',
+      targetId,
+      reason: 'revoked',
+    }]);
+
+    unsubscribe();
+    unsubscribe();
+    assert.equal((await api(service, `/v1/hosts/event-two/tcp-tunnel-targets/${unrelatedTargetId}`, {
+      method: 'DELETE',
+      token: env.SSHDECK_UI_TOKEN,
+    })).status, 204);
+    assert.equal(events.length, 1, '解除訂閱後不得再收到 lifecycle event');
+  } finally {
+    if (service) await service.closeAsync();
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('DELETE 等待 async invalidation subscribers，拒絕時 grant 失效且回報失敗', {
+  timeout: 30_000,
+}, async () => {
+  const temp = makeTaskTemp('sshdeck-ticket01-invalidation-await-');
+  const env = createServiceEnv(path.join(temp, 'service-home'));
+  let service;
+  let releaseNotification = () => {};
+  try {
+    service = await startService({ env, port: 0 });
+    await createHost(service, env, { alias: 'await-revoke' });
+    const targetId = await createGrant(service, env, 'await-revoke');
+    let markNotified;
+    const notified = new Promise((resolve) => { markNotified = resolve; });
+    const notificationGate = new Promise((resolve) => { releaseNotification = resolve; });
+    const events = [];
+    service.subscribeTunnelTargetGrantInvalidation((event) => {
+      events.push(event);
+      assert.equal(service.getTunnelTargetGrant(event.alias, event.targetId), undefined,
+        '通知開始時 grant 必須已撤銷');
+      markNotified();
+      return notificationGate;
+    });
+
+    let responseReceived = false;
+    const pendingResponse = api(service, `/v1/hosts/await-revoke/tcp-tunnel-targets/${targetId}`, {
+      method: 'DELETE',
+      token: env.SSHDECK_UI_TOKEN,
+    }).then((response) => {
+      responseReceived = true;
+      return response;
+    });
+    await notified;
+    assert.equal(responseReceived, false, 'subscriber 尚未完成時 DELETE 不得提早回應 204');
+    let duplicateResponseReceived = false;
+    const duplicateResponse = api(service, `/v1/hosts/await-revoke/tcp-tunnel-targets/${targetId}`, {
+      method: 'DELETE',
+      token: env.SSHDECK_UI_TOKEN,
+    }).then((response) => {
+      duplicateResponseReceived = true;
+      return response;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(duplicateResponseReceived, false,
+      '同一 target 的並行冪等 DELETE 也必須等待先行的失效通知完成');
+    releaseNotification();
+    assert.equal((await pendingResponse).status, 204);
+    assert.equal((await duplicateResponse).status, 204);
+    assert.deepEqual(events, [{ alias: 'await-revoke', targetId, reason: 'revoked' }]);
+
+    await createHost(service, env, { alias: 'reject-revoke', hostname: '192.0.2.13', port: 2229 });
+    const rejectedTargetId = await createGrant(service, env, 'reject-revoke');
+    let rejectedCalls = 0;
+    service.subscribeTunnelTargetGrantInvalidation(() => {
+      rejectedCalls += 1;
+      throw new Error('subscriber failure must not reach the response');
+    });
+    const rejected = await api(service, `/v1/hosts/reject-revoke/tcp-tunnel-targets/${rejectedTargetId}`, {
+      method: 'DELETE',
+      token: env.SSHDECK_UI_TOKEN,
+    });
+    assert.equal(rejected.status, 502, 'subscriber rejection 不得回報撤銷操作成功');
+    assert.equal(rejected.payload.code, 'TUNNEL_INVALIDATION_FAILED');
+    assert.equal(rejected.text.includes('subscriber failure'), false, 'subscriber error details 不得洩漏');
+    assert.equal(service.getTunnelTargetGrant('reject-revoke', rejectedTargetId), undefined,
+      'subscriber rejection 不得恢復已撤銷 grant');
+
+    await createHost(service, env, { alias: 'after-reject', hostname: '192.0.2.14', port: 2230 });
+    const afterRejectId = await createGrant(service, env, 'after-reject');
+    assert.equal((await api(service, `/v1/hosts/after-reject/tcp-tunnel-targets/${afterRejectId}`, {
+      method: 'DELETE',
+      token: env.SSHDECK_UI_TOKEN,
+    })).status, 204, '拒絕的 subscriber 應移除，避免污染後續失效操作');
+    assert.equal(rejectedCalls, 1);
+  } finally {
+    releaseNotification();
+    if (service) await service.closeAsync();
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('host、key、lock 與 shutdown lifecycle 以原因欄位通知並清除對應 grants', {
+  timeout: 30_000,
+}, async () => {
+  const temp = makeTaskTemp('sshdeck-ticket01-invalidation-lifecycle-');
+  const env = createServiceEnv(path.join(temp, 'service-home'));
+  let service;
+  const events = [];
+  let markShutdownNotified;
+  const shutdownNotified = new Promise((resolve) => { markShutdownNotified = resolve; });
+  let releaseShutdown;
+  const shutdownGate = new Promise((resolve) => { releaseShutdown = resolve; });
+  try {
+    service = await startService({ env, port: 0 });
+    service.subscribeTunnelTargetGrantInvalidation((event) => {
+      events.push(event);
+      if (event.reason === 'service-shutdown') {
+        markShutdownNotified();
+        return shutdownGate;
+      }
+    });
+    const lockedHost = await createHost(service, env, { alias: 'lifecycle-lock' });
+    const otherLockedHost = await createHost(service, env, {
+      alias: 'lifecycle-lock-other', hostname: '192.0.2.15', port: 2231,
+    });
+    const lockedId = await createGrant(service, env, lockedHost.alias);
+    const otherLockedId = await createGrant(service, env, otherLockedHost.alias);
+    assert.equal((await api(service, '/v1/lock', {
+      method: 'POST', token: env.SSHDECK_UI_TOKEN, body: {},
+    })).status, 204);
+    assert.deepEqual(events.splice(0), [
+      { alias: lockedHost.alias, targetId: lockedId, reason: 'service-locked' },
+      { alias: otherLockedHost.alias, targetId: otherLockedId, reason: 'service-locked' },
+    ]);
+    assert.equal((await api(service, '/v1/unlock', {
+      method: 'POST', token: env.SSHDECK_UI_TOKEN, body: {},
+    })).status, 204);
+
+    const updatedHost = await createHost(service, env, { alias: 'lifecycle-update', hostname: '192.0.2.16', port: 2232 });
+    const updatedId = await createGrant(service, env, updatedHost.alias);
+    assert.equal((await api(service, `/v1/hosts/${updatedHost.alias}`, {
+      method: 'PUT', token: env.SSHDECK_UI_TOKEN, body: { username: 'updated-user' },
+    })).status, 200);
+    assert.deepEqual(events.splice(0), [{
+      alias: updatedHost.alias, targetId: updatedId, reason: 'host-updated',
+    }], 'host 與 managed-key profile 更新都須通知並失效舊 grant');
+
+    const removedHost = await createHost(service, env, { alias: 'lifecycle-remove', hostname: '192.0.2.17', port: 2233 });
+    const removedId = await createGrant(service, env, removedHost.alias);
+    assert.equal((await api(service, `/v1/hosts/${removedHost.alias}`, {
+      method: 'DELETE', token: env.SSHDECK_UI_TOKEN,
+    })).status, 204);
+    assert.deepEqual(events.splice(0), [{
+      alias: removedHost.alias, targetId: removedId, reason: 'host-removed',
+    }]);
+
+    const unlinkedHost = await createHost(service, env, { alias: 'lifecycle-unlink', hostname: '192.0.2.18', port: 2234 });
+    const unlinkedId = await createGrant(service, env, unlinkedHost.alias);
+    assert.equal((await api(service, `/v1/hosts/${unlinkedHost.alias}/key/unlink`, {
+      method: 'POST', token: env.SSHDECK_UI_TOKEN, body: {},
+    })).status, 204);
+    assert.deepEqual(events.splice(0), [{
+      alias: unlinkedHost.alias, targetId: unlinkedId, reason: 'host-key-unlinked',
+    }]);
+
+    const shutdownHost = await createHost(service, env, { alias: 'lifecycle-shutdown', hostname: '192.0.2.19', port: 2235 });
+    const shutdownId = await createGrant(service, env, shutdownHost.alias);
+    let closeCompleted = false;
+    const closeRequest = service.closeAsync().then(() => { closeCompleted = true; });
+    await shutdownNotified;
+    assert.equal(closeCompleted, false, 'service shutdown 必須等待 async invalidation subscriber');
+    releaseShutdown();
+    await closeRequest;
+    service = undefined;
+    assert.deepEqual(events, [{
+      alias: shutdownHost.alias, targetId: shutdownId, reason: 'service-shutdown',
+    }]);
+  } finally {
+    releaseShutdown();
     if (service) await service.closeAsync();
     fs.rmSync(temp, { recursive: true, force: true });
   }
@@ -427,6 +665,61 @@ test('解除共享 key 的單一 host 關聯只撤銷該 alias 的 target grants
     assert.equal(Boolean(service.getTunnelTargetGrant(secondHost.alias, secondTargetId)), true,
       '仍關聯同一 managed key 的其他 alias grant 必須維持有效');
   } finally {
+    if (service) await service.closeAsync();
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('fingerprint trust A→B→A 在中途未 lookup 時也永久撤銷舊 target grant', {
+  timeout: 60_000,
+}, async () => {
+  const temp = makeTaskTemp('sshdeck-ticket01-trust-rotation-');
+  const env = createServiceEnv(path.join(temp, 'service-home'));
+  const keyA = createSshHostKey();
+  const keyB = createSshHostKey();
+  let peer;
+  let service;
+  try {
+    peer = await startSshFingerprintPeer(keyA.privateKey);
+    const port = peer.address().port;
+    service = await startService({ env, port: 0 });
+    const host = await createHost(service, env, {
+      alias: 'trust-rotation',
+      hostname: '127.0.0.1',
+      port,
+      trust: false,
+    });
+    const check = (expectedFingerprint) => api(service, `/v1/hosts/${host.alias}/check`, {
+      method: 'POST',
+      token: env.SSHDECK_UI_TOKEN,
+      body: { expectedFingerprint },
+    });
+
+    assert.equal((await check(keyA.fingerprint)).status, 200, '第一個已核對的 fingerprint 應完成 trust');
+    const targetId = await createGrant(service, env, host.alias);
+    const events = [];
+    service.subscribeTunnelTargetGrantInvalidation((event) => {
+      events.push(event);
+      assert.equal(service.getTunnelTargetGrant(event.alias, event.targetId), undefined,
+        'fingerprint trust 變更通知前 grant 必須已撤銷');
+    });
+
+    await closeSshFingerprintPeer(peer);
+    peer = await startSshFingerprintPeer(keyB.privateKey, port);
+    assert.equal((await check(keyB.fingerprint)).status, 200, '輪替後核對的新 fingerprint 應完成 trust');
+    assert.deepEqual(events, [{
+      alias: host.alias, targetId, reason: 'fingerprint-trust-changed',
+    }]);
+
+    await closeSshFingerprintPeer(peer);
+    peer = await startSshFingerprintPeer(keyA.privateKey, port);
+    assert.equal((await check(keyA.fingerprint)).status, 200, '再次核對舊 fingerprint 應完成 trust');
+
+    assert.equal(service.getTunnelTargetGrant(host.alias, targetId) === undefined, true,
+      'A→B→A 輪替不得讓中途未 lookup 的舊 target ID 復活');
+    assert.equal(events.length, 1, '已撤銷 target ID 不得在 trust 回到 A 時重新產生失效事件或復活');
+  } finally {
+    if (peer) await closeSshFingerprintPeer(peer);
     if (service) await service.closeAsync();
     fs.rmSync(temp, { recursive: true, force: true });
   }
