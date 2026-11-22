@@ -723,23 +723,31 @@ test('key unlink、lock、client disconnect、SSH channel error 與 shutdown 都
   const env = createServiceEnv(path.join(temp, 'service-home'));
   let service;
   let mock;
+  let peerSocket;
   const sockets = [];
   try {
     service = await startService({ env, port: 0 });
     const alias = 'tunnel-lifecycle';
     const otherAlias = 'tunnel-lifecycle-peer';
     await createGrantedHost(service, env, alias);
-    await createGrantedHost(service, env, otherAlias);
+    const peerHost = await createGrantedHost(service, env, otherAlias);
     const keys = await api(service, '/v1/keys', { token: env.SSHDECK_UI_TOKEN });
     assert.equal(keys.status, 200);
     const keyId = keys.payload.find((item) => item.associatedAliases.includes(alias))?.id;
     assert.ok(keyId);
     mock = installMockDirectTcpip();
 
+    peerSocket = await connectGrantedTunnel(service, env, otherAlias, peerHost.targetId);
+    sockets.push(peerSocket);
+    const peerSession = mock.sessions.find((session) => session.alias === otherAlias);
+    assert.ok(peerSession, 'unlink 前必須有另一 alias 的 active SSH channel');
+
     let grant = await createTargetGrant(service, env, alias);
     const targetIdBeforeUnlink = grant.payload.targetId;
     let socket = await connectGrantedTunnel(service, env, alias, grant.payload.targetId);
     sockets.push(socket);
+    const targetSession = mock.sessions.find((session) => session.alias === alias);
+    assert.ok(targetSession, 'unlink 目標必須有 active SSH channel');
     const unlinkControl = waitForControl(socket, (message) => message.type === 'error');
     const unlinkClose = waitForSocketClose(socket);
     const unlinked = await api(service, `/v1/hosts/${alias}/key/unlink`, {
@@ -752,6 +760,16 @@ test('key unlink、lock、client disconnect、SSH channel error 與 shutdown 都
     assert.equal(unlinkMessage.code, 'TARGET_GRANT_INVALIDATED');
     assert.equal(socket.readyState, WebSocket.CLOSED,
       'key unlink response 完成前必須關閉相符 streams');
+    await targetSession.closed;
+    assert.equal(targetSession.channel.destroyed, true,
+      'key unlink operation 回應前必須關閉相符 SSH channel');
+    assert.equal(peerSocket.readyState, WebSocket.OPEN,
+      'key unlink 不得關閉另一 alias 的 tunnel');
+    const unlinkPeerPayload = randomBytes(8192);
+    const unlinkPeerEcho = waitForBinaryBytes(peerSocket, unlinkPeerPayload.length);
+    peerSocket.send(unlinkPeerPayload, { binary: true });
+    assert.deepEqual(await unlinkPeerEcho, unlinkPeerPayload,
+      'key unlink 後另一 alias 的 active tunnel 必須繼續完成 binary round-trip');
 
     const linked = await api(service, `/v1/hosts/${alias}/key/link`, {
       method: 'POST',
@@ -787,9 +805,6 @@ test('key unlink、lock、client disconnect、SSH channel error 與 shutdown 都
       body: {},
     });
     assert.equal(replacementKey.status, 201);
-    const peerGrant = await createTargetGrant(service, env, otherAlias);
-    let peerSocket = await connectGrantedTunnel(service, env, otherAlias, peerGrant.payload.targetId);
-    sockets.push(peerSocket);
     grant = await createTargetGrant(service, env, alias);
     socket = await connectGrantedTunnel(service, env, alias, grant.payload.targetId);
     sockets.push(socket);
