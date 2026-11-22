@@ -7,6 +7,7 @@ const { PassThrough } = require('node:stream');
 const { randomUUID } = require('node:crypto');
 const {
   createOpenSshServiceFixture,
+  portAvailable,
   startWslSession,
 } = require('./helpers/openssh-service-fixture');
 
@@ -131,7 +132,7 @@ function fakeFixtureDependencies({
           ? portAvailability(port, count)
           : true;
       events.push({ type: 'port-check', port, free });
-      return free;
+      return { state: free ? 'free' : 'occupied', source: 'fixture-test' };
     },
     startWslSession: async () => session,
     runWsl(args) {
@@ -207,7 +208,10 @@ function fakeSetupFailureDependencies({
       portChecks.push(port);
       const calls = (portCheckCounts.get(port) || 0) + 1;
       portCheckCounts.set(port, calls);
-      return calls === 1 || !occupiedPorts.includes(port);
+      return {
+        state: calls === 1 || !occupiedPorts.includes(port) ? 'free' : 'occupied',
+        source: 'fixture-test',
+      };
     },
     startWslSession: async () => session,
     runWsl(args) {
@@ -266,6 +270,79 @@ function fakeSetupFailureDependencies({
     session,
   };
 }
+
+test('Windows port probe 將 spawn timeout 保留為 unknown error', async () => {
+  const spawnError = Object.assign(new Error('spawn timed out'), { code: 'ETIMEDOUT' });
+  const probe = await portAvailable(2227, {
+    platform: 'win32',
+    spawnSyncProcess: () => ({ error: spawnError, status: null, stdout: '', stderr: '' }),
+    runWslCommand: () => assert.fail('Windows probe error 時不得繼續查詢 WSL listener'),
+  });
+
+  assert.equal(probe.state, 'unknown', 'spawn timeout 不得被摺疊為 free 或 occupied');
+  assert.equal(probe.error, spawnError, 'probe 必須保留原始 spawn error');
+});
+
+test('Windows port probe 將非預期 exit code 保留為 unknown error', async () => {
+  const probe = await portAvailable(2227, {
+    platform: 'win32',
+    spawnSyncProcess: () => ({ error: null, status: 42, stdout: '', stderr: 'probe failed' }),
+    runWslCommand: () => assert.fail('非預期 exit code 時不得繼續查詢 WSL listener'),
+  });
+
+  assert.equal(probe.state, 'unknown', '非預期 exit code 不得代表 port occupied');
+  assert.match(probe.error.message, /42/, 'probe error 必須保留實際 exit code');
+});
+
+test('Windows port probe 將明確回報的 host listener 分類為 occupied', async () => {
+  const probe = await portAvailable(2227, {
+    platform: 'win32',
+    spawnSyncProcess: () => ({ error: null, status: 0, stdout: 'occupied\n', stderr: '' }),
+    runWslCommand: () => assert.fail('Windows host 已有 listener 時不需再查 WSL'),
+  });
+
+  assert.deepEqual(probe, { state: 'occupied', source: 'windows-host' });
+});
+
+test('Windows 與 WSL 均確認無 listener 時 port probe 回報 free', async () => {
+  let powershellCommand;
+  const probe = await portAvailable(2227, {
+    platform: 'win32',
+    spawnSyncProcess: (_command, args) => {
+      powershellCommand = args.at(-1);
+      return { error: null, status: 0, stdout: 'free\n', stderr: '' };
+    },
+    runWslCommand: (args) => {
+      assert.deepEqual(args, ['ss', '-ltn']);
+      return 'State Recv-Q Send-Q Local Address:Port Peer Address:Port\n';
+    },
+  });
+
+  assert.deepEqual(probe, { state: 'free', source: 'windows-and-wsl' });
+  assert.match(powershellCommand, /\$ErrorActionPreference = 'Stop'/);
+  assert.match(powershellCommand, /WriteLine\('occupied'\)/);
+  assert.doesNotMatch(powershellCommand, /SilentlyContinue/);
+});
+
+test('OpenSSH fixture preflight 遇到 unknown port probe 時 fail closed 且不啟動資源', async () => {
+  const fake = fakeSetupFailureDependencies();
+  const probeError = Object.assign(new Error('Windows port probe timed out'), { code: 'ETIMEDOUT' });
+  fake.dependencies.portAvailable = async () => ({ state: 'unknown', error: probeError });
+
+  await assert.rejects(
+    createOpenSshServiceFixture({
+      authorizedPublicKey: 'ssh-ed25519 test-key',
+    }, fake.dependencies),
+    (error) => {
+      assert.match(error.message, /無法確認.*2227/);
+      assert.equal(error.cause, probeError);
+      assert.equal(error.cause.code, 'ETIMEDOUT');
+      return true;
+    },
+  );
+  assert.equal(fake.session.stopCalls, 0, 'preflight 尚未啟動 session 時不應產生 cleanup');
+  assert.deepEqual(fake.systemdRunUnits, [], 'unknown 不得被當作 free 繼續啟動 SSH fixture');
+});
 
 test('WSL fixture keeper 在 readiness marker 後立即退出時 startup fail closed', async () => {
   const fake = fakeSpawn('exit-after-marker');
@@ -504,6 +581,52 @@ test('OpenSSH fixture setup cleanup 遇到未確認 unit state 時保留 run roo
   assert.equal(fake.session.stopCalls, 1);
 });
 
+test('OpenSSH fixture setup cleanup 的 unknown port probe 保留 root 並回報 unknown listener', async () => {
+  const fake = fakeSetupFailureDependencies();
+  const probeError = Object.assign(new Error('Windows port probe timed out'), { code: 'ETIMEDOUT' });
+  const originalPortAvailable = fake.dependencies.portAvailable;
+  const probeCalls = new Map();
+  fake.dependencies.portAvailable = async (port) => {
+    const call = (probeCalls.get(port) || 0) + 1;
+    probeCalls.set(port, call);
+    if (port === 2227 && call === 2) return { state: 'unknown', error: probeError };
+    return originalPortAvailable(port);
+  };
+
+  let setupError;
+  try {
+    await createOpenSshServiceFixture({
+      authorizedPublicKey: 'ssh-ed25519 test-key',
+      allowDirectTcpip: true,
+    }, fake.dependencies);
+  } catch (error) {
+    setupError = error;
+  }
+
+  assert.ok(setupError instanceof AggregateError, 'setup 與 probe unknown error 必須同時回報');
+  assert.equal(setupError.errors[0], fake.wrapperError, '主要 setup failure 必須優先保留');
+  assert.ok(setupError.errors.includes(probeError), '原始 port probe error 必須聚合保留');
+  assert.equal(setupError.cleanupReport.ports[0].port, 2227);
+  assert.equal(setupError.cleanupReport.ports[0].state, 'unknown');
+  assert.equal(setupError.cleanupReport.ports[0].free, null);
+  assert.equal(setupError.cleanupReport.root.removed, false, 'unknown port 狀態時不得移除 root');
+  assert.ok(setupError.cleanupReport.root.blockedBy.includes('port:2227:unknown'));
+  assert.ok(
+    setupError.cleanupReport.residualResources.some(
+      (resource) => resource.type === 'listener' && resource.port === 2227 && resource.state === 'unknown',
+    ),
+    'unknown probe 不得記錄成確認存在的 listener',
+  );
+  assert.equal(
+    setupError.cleanupReport.residualResources.some(
+      (resource) => resource.type === 'listener' && resource.port === 2227 && resource.state === 'listening',
+    ),
+    false,
+  );
+  assert.equal(fake.runWslCalls.some((args) => args[0] === 'rm'), false);
+  assert.equal(fake.session.stopCalls, 1);
+});
+
 test('OpenSSH fixture setup cleanup stop 回報錯誤時即使確認 unit 已停止仍保留 run root', async () => {
   const stopError = new Error('systemd stop wrapper failed after remote stop');
   const fake = fakeSetupFailureDependencies({
@@ -664,6 +787,49 @@ test('OpenSSH fixture cleanup port listener 持續存在時保留 root', async (
     ),
     'cleanup evidence 必須列出仍占用的 listener',
   );
+});
+
+test('OpenSSH fixture cleanup 的 unknown port probe 保留 root 且不宣稱 listener 存在', async () => {
+  const fake = fakeFixtureDependencies({ failUnitCleanup: false });
+  const originalPortAvailable = fake.dependencies.portAvailable;
+  const probeCalls = new Map();
+  const probeError = new Error('Windows port probe access denied');
+  fake.dependencies.portAvailable = async (port) => {
+    const call = (probeCalls.get(port) || 0) + 1;
+    probeCalls.set(port, call);
+    if (port === 2227 && call === 2) return { state: 'unknown', error: probeError };
+    return originalPortAvailable(port);
+  };
+  const fixture = await createOpenSshServiceFixture({
+    authorizedPublicKey: 'ssh-ed25519 test-key',
+  }, fake.dependencies);
+
+  let cleanupError;
+  try {
+    await fixture.cleanup();
+  } catch (error) {
+    cleanupError = error;
+  }
+
+  assert.ok(cleanupError, 'unknown port 狀態必須作為 cleanup error 回報');
+  assert.ok(cleanupError.cleanupReport.cleanupErrors.some((item) => item.error === probeError.message));
+  const port = cleanupError.cleanupReport.ports.find((item) => item.port === 2227);
+  assert.equal(port.state, 'unknown');
+  assert.equal(port.free, null);
+  assert.equal(cleanupError.cleanupReport.rootCleanup.removed, false);
+  assert.ok(cleanupError.cleanupReport.rootCleanup.blockedBy.includes('port:2227:unknown'));
+  assert.ok(
+    cleanupError.cleanupReport.residualResources.some(
+      (resource) => resource.type === 'listener' && resource.port === 2227 && resource.state === 'unknown',
+    ),
+  );
+  assert.equal(
+    cleanupError.cleanupReport.residualResources.some(
+      (resource) => resource.type === 'listener' && resource.port === 2227 && resource.state === 'listening',
+    ),
+    false,
+  );
+  assert.equal(fake.session.stopCalls, 1);
 });
 
 test('OpenSSH fixture cleanup 同時失敗時保留主要與 session-stop 錯誤', async () => {

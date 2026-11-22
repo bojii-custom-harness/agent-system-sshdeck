@@ -301,23 +301,73 @@ function combineCleanupErrors(errors, message) {
   return new AggregateError(errors, message, { cause: errors[0] });
 }
 
-function portAvailable(port) {
-  if (process.platform === 'win32') {
-    const powershell = spawnSync('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      `if (Get-NetTCPConnection -State Listen -LocalPort ${port} -ErrorAction SilentlyContinue) { exit 1 }`,
-    ], { encoding: 'utf8', windowsHide: true, timeout: 5000 });
-    if (powershell.error || powershell.status !== 0) return Promise.resolve(false);
-    const wslListeners = runWsl(['ss', '-ltn']);
-    return Promise.resolve(!wslListeners.split(/\r?\n/).some((line) => line.includes(`:${port} `)));
+function portAvailable(port, {
+  platform = process.platform,
+  spawnSyncProcess = spawnSync,
+  runWslCommand = runWsl,
+} = {}) {
+  if (platform === 'win32') {
+    let powershell;
+    try {
+      powershell = spawnSyncProcess('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        [
+          "$ErrorActionPreference = 'Stop'",
+          'try {',
+          `$listeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object { $_.LocalPort -eq ${port} })`,
+          "if ($listeners.Count -gt 0) { [Console]::Out.WriteLine('occupied') } else { [Console]::Out.WriteLine('free') }",
+          '} catch {',
+          '[Console]::Error.WriteLine($_.Exception.GetType().Name)',
+          'exit 2',
+          '}',
+        ].join('; '),
+      ], { encoding: 'utf8', windowsHide: true, timeout: 5000 });
+    } catch (error) {
+      return Promise.resolve({ state: 'unknown', error });
+    }
+    if (powershell.error) {
+      return Promise.resolve({ state: 'unknown', error: powershell.error });
+    }
+    if (powershell.status !== 0) {
+      const stderr = (powershell.stderr || '').trim().slice(0, 300);
+      return Promise.resolve({
+        state: 'unknown',
+        error: new Error(`Windows port probe exited with status ${powershell.status}${stderr ? `: ${stderr}` : ''}`),
+      });
+    }
+    const hostState = (powershell.stdout || '').trim();
+    if (hostState === 'occupied') {
+      return Promise.resolve({ state: 'occupied', source: 'windows-host' });
+    }
+    if (hostState !== 'free') {
+      return Promise.resolve({
+        state: 'unknown',
+        error: new Error(`Windows port probe returned unexpected output: ${hostState || '<empty>'}`),
+      });
+    }
+    try {
+      const wslListeners = runWslCommand(['ss', '-ltn']);
+      if (wslListeners.split(/\r?\n/).some((line) => line.includes(`:${port} `))) {
+        return Promise.resolve({ state: 'occupied', source: 'wsl' });
+      }
+      return Promise.resolve({ state: 'free', source: 'windows-and-wsl' });
+    } catch (error) {
+      return Promise.resolve({ state: 'unknown', error });
+    }
   }
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const server = net.createServer();
-    server.once('error', reject);
+    server.once('error', (error) => {
+      resolve(error.code === 'EADDRINUSE'
+        ? { state: 'occupied', source: 'loopback' }
+        : { state: 'unknown', error });
+    });
     server.listen(port, '127.0.0.1', () => {
-      server.close((error) => error ? reject(error) : resolve(true));
+      server.close((error) => resolve(error
+        ? { state: 'unknown', error }
+        : { state: 'free', source: 'loopback' }));
     });
   });
 }
@@ -326,17 +376,40 @@ async function waitForPortAvailability(port, checkPortAvailable, timeoutMs = 500
   const deadline = Date.now() + timeoutMs;
   const checks = [];
   while (true) {
-    let free;
+    let probe;
     try {
-      free = await checkPortAvailable(port);
+      probe = normalizePortProbeResult(await checkPortAvailable(port), port);
     } catch (error) {
-      checks.push({ free: null, error: error.message });
-      return { free: null, checks, error };
+      probe = { state: 'unknown', error };
     }
-    checks.push({ free });
-    if (free || Date.now() >= deadline) return { free, checks };
+    const free = probe.state === 'free' ? true : probe.state === 'occupied' ? false : null;
+    checks.push({
+      state: probe.state,
+      free,
+      ...(probe.source ? { source: probe.source } : {}),
+      ...(probe.error ? { error: probe.error.message } : {}),
+    });
+    if (probe.state !== 'occupied' || Date.now() >= deadline) {
+      return { state: probe.state, free, checks, ...(probe.error ? { error: probe.error } : {}) };
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+}
+
+function normalizePortProbeResult(result, port) {
+  if (result && ['free', 'occupied', 'unknown'].includes(result.state)) {
+    if (result.state !== 'unknown') return result;
+    return {
+      ...result,
+      error: result.error instanceof Error
+        ? result.error
+        : new Error(`Port ${port} probe state is unknown`),
+    };
+  }
+  return {
+    state: 'unknown',
+    error: new Error(`Port ${port} probe returned an invalid result`),
+  };
 }
 
 async function waitForPort(port, host = '127.0.0.1', timeoutMs = 10_000) {
@@ -405,7 +478,21 @@ async function createOpenSshServiceFixture({
   }
   const sshHost = resolveWslHostAddress();
   for (const port of ports) {
-    if (!await checkPortAvailable(port)) throw new Error(`OpenSSH fixture port ${port} 已被占用；未停止任何既有程序`);
+    let probe;
+    try {
+      probe = normalizePortProbeResult(await checkPortAvailable(port), port);
+    } catch (error) {
+      probe = { state: 'unknown', error };
+    }
+    if (probe.state === 'occupied') {
+      throw new Error(`OpenSSH fixture port ${port} 已被占用；未停止任何既有程序`);
+    }
+    if (probe.state === 'unknown') {
+      throw new Error(
+        `無法確認 OpenSSH fixture port ${port} 狀態：${probe.error.message}`,
+        { cause: probe.error },
+      );
+    }
   }
 
   const runId = randomUUID();
@@ -603,13 +690,14 @@ server.serve_forever(poll_interval=0.1)
             );
             portStates.push({
               port,
+              state: availability.state,
               free: availability.free,
               checks: availability.checks,
               ...(availability.error ? { error: availability.error.message } : {}),
             });
             if (availability.error) addCleanupError('check-ssh-port', String(port), availability.error);
           } catch (error) {
-            portStates.push({ port, free: null, error: error.message });
+            portStates.push({ port, state: 'unknown', free: null, error: error.message });
             addCleanupError('check-ssh-port', String(port), error);
           }
         }
@@ -873,6 +961,7 @@ server.serve_forever(poll_interval=0.1)
             );
             portsAfterCleanup.push({
               port,
+              state: availability.state,
               free: availability.free,
               checks: availability.checks,
               ...(availability.error ? { error: availability.error.message } : {}),
@@ -904,7 +993,12 @@ server.serve_forever(poll_interval=0.1)
               });
             }
           } catch (cleanupError) {
-            portsAfterCleanup.push({ port, free: null, error: cleanupError.message });
+            portsAfterCleanup.push({
+              port,
+              state: 'unknown',
+              free: null,
+              error: cleanupError.message,
+            });
             addCleanupError('check-ssh-port', String(port), cleanupError);
             residualResources.push({
               type: 'listener',
@@ -1066,4 +1160,4 @@ server.serve_forever(poll_interval=0.1)
   }
 }
 
-module.exports = { createOpenSshServiceFixture, startWslSession };
+module.exports = { createOpenSshServiceFixture, portAvailable, startWslSession };
