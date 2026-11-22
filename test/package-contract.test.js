@@ -2,7 +2,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const {
   applyTicket03TokenSentinels,
@@ -17,10 +19,91 @@ function listFiles(directory) {
   });
 }
 
+function writeVerifierFixture(packageRoot, candidateVersion) {
+  fs.mkdirSync(packageRoot, { recursive: true });
+  const packageManifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  fs.writeFileSync(path.join(packageRoot, 'package.json'), JSON.stringify({
+    name: packageManifest.name,
+    version: candidateVersion,
+  }));
+  fs.writeFileSync(path.join(packageRoot, 'README.md'), [
+    `本機 source candidate 版本：\`${candidateVersion}\`（未發布）`,
+    'docs/service-api.md',
+    'docs/service-deployment.md',
+    'SSHDECK_SERVICE_TOKEN',
+    'SSHDECK_UI_TOKEN',
+    'SSHDECK_TUNNEL_TOKEN',
+  ].join('\n'));
+
+  const requiredFiles = [
+    'bin/sshdeck.js',
+    'lib/service-server.js',
+    'docs/service-api.md',
+    'docs/service-deployment.md',
+    '.opencode/skills/agent-system-sshdeck/SKILL.md',
+    '.opencode/skills/agent-system-sshdeck/references/install.md',
+  ];
+  for (const filePath of requiredFiles) {
+    const destination = path.join(packageRoot, filePath);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(path.join(root, filePath), destination);
+  }
+}
+
+function runInstalledPackageVerifier(packageRoot) {
+  const result = spawnSync(process.execPath, [
+    path.join(root, 'scripts/verify-release-package.js'),
+    '--installed',
+    packageRoot,
+  ], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 10_000,
+    windowsHide: true,
+  });
+  if (result.error) throw result.error;
+  return result;
+}
+
+test('package verifier 拒絕 README 與同一 package root 版本不一致的候選', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sshdeck-readme-version-'));
+  const packageRoot = path.join(tempRoot, 'package');
+  const packageVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
+  const mismatchedVersion = packageVersion === '0.0.0' ? '0.0.1' : '0.0.0';
+  try {
+    writeVerifierFixture(packageRoot, packageVersion);
+    const matching = runInstalledPackageVerifier(packageRoot);
+    assert.equal(matching.status, 0, `版本一致的 package 應通過 verifier：${matching.stderr}`);
+
+    const packageManifestPath = path.join(packageRoot, 'package.json');
+    const mismatchedManifest = JSON.parse(fs.readFileSync(packageManifestPath, 'utf8'));
+    mismatchedManifest.version = mismatchedVersion;
+    fs.writeFileSync(packageManifestPath, JSON.stringify(mismatchedManifest));
+    const mismatched = runInstalledPackageVerifier(packageRoot);
+    assert.notEqual(mismatched.status, 0, 'verifier 必須拒絕 README 與 package.json 版本不一致');
+    assert.match(
+      mismatched.stderr,
+      /README 本機 source candidate 版本必須與同一 package root 的 package\.json\.version 一致/,
+    );
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('package candidate 包含 service/API handoff，Bot-readable 文件不嵌入 token sentinel', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   const packageFiles = new Set(manifest.files);
   assert.ok(fs.statSync(path.join(root, 'README.md')).isFile(), 'README 必須存在於 package source');
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  assert.ok(
+    readme.includes(`本機 source candidate 版本：\`${manifest.version}\`（未發布）`),
+    'README 本機候選版本必須明確等於 package.json.version',
+  );
+  assert.doesNotMatch(
+    readme,
+    /(?:git tag -a|git push origin|npm version (?:patch|minor|major))/,
+    'README 不得留下可直接執行的未授權發版命令',
+  );
   assert.ok(packageFiles.has('docs/service-api.md'));
   assert.ok(packageFiles.has('docs/service-deployment.md'));
   assert.ok(packageFiles.has('.opencode/skills/agent-system-sshdeck/'));

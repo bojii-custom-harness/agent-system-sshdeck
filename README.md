@@ -40,27 +40,17 @@ npm install -g https://github.com/bojii-custom-harness/agent-system-sshdeck/rele
 - 新環境執行瀏覽器測試前，先安裝 Playwright Chromium：`npx playwright install chromium`。Linux 若缺少系統相依，使用 `npx playwright install --with-deps chromium` 安裝瀏覽器及必要套件；此命令需要安裝系統套件的權限。
 - 執行測試：`npm test`。若未設定下方整合測試環境變數，SSH／Docker E2E 測試會標示 skipped。
 
-### 使用 tag 發版
+### 本機 source candidate（未發布）
 
-GitHub Actions 在推送 `v*` tag 後核對 tag 與 `package.json` 版本、執行測試、打包並驗證 CLI 全域安裝，成功後自動建立 Release 與公開下載附件。僅接受 `v主版.次版.修訂版` 正式版；測試所需的遠端 SSH fixture 未設定時，相關 E2E 仍會 skipped。套件包含執行所需的 `bin/`、`lib/`、`public/`、服務 API 契約 `docs/service-api.md` 與 npm 自動收錄的套件說明檔。
+本機 source candidate 版本：`0.1.4`（未發布）
 
-目前產品分支的套件版本是 `0.1.3` 本機候選；尚未建立新 tag、push 或公開 Release。正式發布前須完成該版本附件驗證、獨立票級 review，並另行取得發布授權。符合授權門檻後，才可為每個正式版本建立一次 tag：
+`package.json` 的 `0.1.4` 是供本機驗證與交接使用的 source candidate，不代表官方發行版本。此候選尚未建立或推送 Git tag、推送 source、建立 GitHub Release、發布至 npm registry 或部署；本次交付也未授權這些操作。任何 tag、push、Release、publish 或 deploy 都必須另行取得明確授權。
 
-```sh
-git tag -a v0.1.3 -m "發佈 v0.1.3"
-git push origin v0.1.3
-```
+### 正式發版說明（本機候選不適用）
 
-後續發版先在乾淨的正式分支更新版本；`npm version patch` 會同步更新 `package.json`、`package-lock.json` 並建立 commit 與 tag：
+既有 GitHub Actions 會在收到 `v*` tag 後核對 tag 與 `package.json` 版本、執行測試、打包並驗證 CLI 全域安裝，成功後建立 Release 與公開下載附件。此處僅說明既有自動化行為，不是本機候選的發版指示；未經另行明確授權，不要為此候選建立或推送 tag，也不要推送、建立 Release、npm publish 或部署。本 README 不提供可直接執行的發版命令。
 
-```sh
-npm version patch -m "發佈 v%s"
-version=$(node -p "require('./package.json').version")
-git push origin <正式分支>
-git push origin "v$version"
-```
-
-次版／主版可改用 `npm version minor`／`npm version major`，推送對應的新 tag。每個版本使用新的 tag；可在 GitHub Actions 的 `Release CLI` 查看結果。`private: true` 僅防止誤發佈至 npm registry，不影響 HTTPS tarball 安裝。
+正式套件包含執行所需的 `bin/`、`lib/`、`public/`、服務 API 契約 `docs/service-api.md` 與 npm 自動收錄的套件說明檔。`private: true` 可避免誤發佈至 npm registry，不影響 HTTPS tarball 安裝。
 
 SSH 傳輸與 SSHDeck service 測試使用專用、可丟棄的 OpenSSH fixture；它們不會因設定 `SSHDECK_TEST_SSH_*` 而啟用遠端 Docker 測試。Windows 的 service E2E 以本機 WSL Ubuntu/systemd 啟動兩個 transient OpenSSH targets；確認 `2227`／`2228` 未被占用後，設定 `$env:SSHDECK_TEST_SERVICE_SSH = '1'` 再執行 `npm test`。測試產生隨機金鑰，並清理本次唯一 systemd units、fixture 目錄及 ports，不使用 Docker。Ticket 03 的私有 Webtop/Pelorus 驗收另以 `$env:SSHDECK_TEST_TICKET03_DOCKER = '1'` 啟用；它只使用原生 Ubuntu WSL Docker Engine、run-scoped network/container 與 pinned Webtop image digest，不發布 host port，並清理本次資源。Docker 權限測試另需專用 OpenSSH/Docker fixture，只有設定 `SSHDECK_TEST_DOCKER_*` 才會啟用；測試會在 fixture 中建立／刪除唯一 `sshdeck-test-ticket06-*` 容器或調整名為 `sshdeck-test-ssh` 的容器帳號群組。不可指向正式主機或共用 Docker daemon，也不要使用個人或生產私鑰。
 
