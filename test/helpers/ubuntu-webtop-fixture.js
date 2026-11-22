@@ -156,7 +156,7 @@ function createUbuntuWebtopFixture({ runId, evidenceFile } = {}) {
     if (containerId || containerCreateAttempted) {
       try {
         if (assertOwnedContainer()) {
-          runWsl(['docker', 'rm', '--force', '--time', '10', containerName], {
+          runWsl(['docker', 'rm', '--force', containerName], {
             label: 'remove-task-container',
             timeoutMs: 30_000,
           });
