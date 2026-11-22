@@ -343,10 +343,18 @@ function createUbuntuWebtopFixture({ runId, evidenceFile } = {}) {
     const dockerHost = runWsl([
       'bash', '-lc', 'if [ -n "${DOCKER_HOST:-}" ]; then printf configured; else printf empty; fi',
     ], { label: 'docker-host-environment' });
-    const info = runWsl([
-      'docker', 'info', '--format', '{{.ServerVersion}}|{{.OSType}}|{{.Name}}|{{.DockerRootDir}}',
-    ], { label: 'docker-engine-identity' });
-    const [serverVersion, osType, dockerName, dockerRoot] = info.split('|');
+    const serverVersion = runWsl([
+      'docker', 'info', '--format', '{{.ServerVersion}}',
+    ], { label: 'docker-engine-server-version' });
+    const osType = runWsl([
+      'docker', 'info', '--format', '{{.OSType}}',
+    ], { label: 'docker-engine-os-type' });
+    const dockerName = runWsl([
+      'docker', 'info', '--format', '{{.Name}}',
+    ], { label: 'docker-engine-name' });
+    const dockerRoot = runWsl([
+      'docker', 'info', '--format', '{{.DockerRootDir}}',
+    ], { label: 'docker-engine-root' });
     evidence.docker = {
       ...evidence.docker,
       context,
