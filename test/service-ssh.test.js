@@ -190,7 +190,28 @@ test('真實 SSHDeck service／雙 OpenSSH targets：信任、持久憑證、串
     const afterRestartKeys = await ui('/v1/keys');
     assert.equal(afterRestartKeys.status, 200);
     assert.equal(afterRestartKeys.payload.length, 3);
-    assert.equal(fixture.isListening(fixture.ports[0]), true, 'service 重啟時 fixture OpenSSH 仍須保持監聽');
+    assert.equal(fixture.isWslSessionActive(), true, '本任務 WSL session 必須在 service restart 期間維持 fixture 存活');
+    assert.equal(fixture.isListening(fixture.ports[0]), true, 'service restart 後 OpenSSH listener 應持續監聽');
+    const restartedLoopback = await directSshExec({
+      host: '127.0.0.1',
+      port: fixture.ports[0],
+      privateKey: keyPair.private,
+      passphrase,
+      expectedFingerprint: fixture.fingerprints.a,
+      command: fixture.command('target-a'),
+    });
+    assert.equal(restartedLoopback.code, 0, restartedLoopback.stderr);
+    assert.equal(restartedLoopback.stdout, 'target-a\n');
+    const restartedPrivate = await directSshExec({
+      host: fixture.sshHost,
+      port: fixture.ports[0],
+      privateKey: keyPair.private,
+      passphrase,
+      expectedFingerprint: fixture.fingerprints.a,
+      command: fixture.command('target-a'),
+    });
+    assert.equal(restartedPrivate.code, 0, restartedPrivate.stderr);
+    assert.equal(restartedPrivate.stdout, 'target-a\n');
     const autoUnlocked = await execCli('target-a', 'target-a');
     assert.equal(autoUnlocked.completed.code, 0, autoUnlocked.completed.stderr);
     assert.equal(autoUnlocked.completed.stdout, 'target-a\n');

@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const net = require('node:net');
 const { randomUUID } = require('node:crypto');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const ports = [2227, 2228];
 
@@ -38,6 +38,113 @@ function runWslResult(args, { input, timeoutMs = 20_000 } = {}) {
     windowsHide: true,
     timeout: timeoutMs,
   });
+}
+
+async function startWslSession() {
+  const readyMarker = `sshdeck-wsl-fixture-session-${randomUUID()}`;
+  const child = spawn('wsl.exe', [
+    '-d',
+    'Ubuntu',
+    '--',
+    'bash',
+    '-lc',
+    `printf '%s\\n' '${readyMarker}'; exec timeout --signal=TERM --kill-after=2s 170s cat >/dev/null`,
+  ], {
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  let ready = false;
+  let stopRequested = false;
+  let closeResult;
+  let resolveClose;
+  let resolveSession;
+  let rejectSession;
+  let startupTimer;
+  const closed = new Promise((resolve) => { resolveClose = resolve; });
+  const sessionReady = new Promise((resolve, reject) => {
+    resolveSession = resolve;
+    rejectSession = reject;
+  });
+  child.stdout.setEncoding('utf8').on('data', (chunk) => {
+    stdout = `${stdout}${chunk}`.slice(-1024);
+    if (!ready && stdout.includes(readyMarker)) {
+      ready = true;
+      clearTimeout(startupTimer);
+      resolveSession();
+    }
+  });
+  child.stderr.setEncoding('utf8').on('data', (chunk) => {
+    stderr = `${stderr}${chunk}`.slice(-1024);
+  });
+  child.stdin.on('error', () => {});
+  child.once('close', (code, signal) => {
+    closeResult = { code, signal };
+    resolveClose(closeResult);
+    if (!ready) {
+      clearTimeout(startupTimer);
+      rejectSession(new Error(
+        `WSL fixture session 未能啟動：${stderr.trim().slice(-300) || `退出碼 ${code}`}`,
+      ));
+    }
+  });
+  child.once('error', (error) => {
+    if (!ready) {
+      clearTimeout(startupTimer);
+      rejectSession(new Error(`WSL fixture session 啟動失敗：${error.code || error.name}`));
+    }
+  });
+  startupTimer = setTimeout(() => {
+    rejectSession(new Error(
+      `WSL fixture session 未在期限內就緒：${stderr.trim().slice(-300) || 'ready marker missing'}`,
+    ));
+    child.kill();
+  }, 5000);
+
+  try {
+    await sessionReady;
+  } catch (error) {
+    child.stdin.end();
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await Promise.race([
+      closed,
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ]);
+    throw error;
+  }
+  return {
+    get isRunning() {
+      return ready && child.exitCode === null && child.signalCode === null;
+    },
+    async stop() {
+      if (closeResult) {
+        if (!stopRequested || closeResult.code !== 0) {
+          throw new Error(`WSL fixture session 提前結束：退出碼 ${closeResult.code ?? closeResult.signal}`);
+        }
+        return closeResult;
+      }
+      stopRequested = true;
+      child.stdin.end();
+      const result = await Promise.race([
+        closed,
+        new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
+      ]);
+      if (!result) {
+        child.kill();
+        const forcedResult = await Promise.race([
+          closed,
+          new Promise((resolve) => setTimeout(() => resolve(null), 5000)),
+        ]);
+        if (!forcedResult) throw new Error('WSL fixture session 未能在期限內結束');
+        throw new Error('WSL fixture session 未能正常結束；已終止其專屬 wsl.exe process');
+      }
+      if (result.code !== 0) {
+        throw new Error(`WSL fixture session 結束碼非零：${result.code}`);
+      }
+      return result;
+    },
+  };
 }
 
 async function waitForUnit(unit, timeoutMs = 10_000) {
@@ -141,9 +248,21 @@ async function createOpenSshServiceFixture({
   }
 
   const runId = randomUUID();
-  const root = runWsl(['mktemp', '-d', `/tmp/sshdeck-ticket01-${runId}-XXXXXX`]);
-  if (!/^\/tmp\/sshdeck-ticket01-[0-9a-f-]{36}-[A-Za-z0-9]{6}$/.test(root)) {
-    throw new Error('WSL fixture 目錄格式不符；拒絕執行清理命令');
+  let root;
+  let wslSession;
+  try {
+    wslSession = await startWslSession();
+    root = runWsl(['mktemp', '-d', `/tmp/sshdeck-ticket01-${runId}-XXXXXX`]);
+    if (!/^\/tmp\/sshdeck-ticket01-[0-9a-f-]{36}-[A-Za-z0-9]{6}$/.test(root)) {
+      throw new Error('WSL fixture 目錄格式不符；拒絕執行清理命令');
+    }
+  } catch (error) {
+    if (wslSession) {
+      try { await wslSession.stop(); } catch (cleanupError) {
+        error.message += `；WSL fixture session 清理失敗：${cleanupError.message}`;
+      }
+    }
+    throw error;
   }
   const units = [
     `sshdeck-ticket01-${runId}-a.service`,
@@ -287,6 +406,8 @@ server.serve_forever(poll_interval=0.1)
         portStates.push({ port, free });
       }
       const targetPortFree = targetPort ? !targetPortListening(targetPort) : undefined;
+      const wslSessionActiveBeforeStop = wslSession.isRunning;
+      const wslSessionClose = await wslSession.stop();
       cleaned = true;
       const evidence = {
         fixture: 'WSL Ubuntu transient OpenSSH',
@@ -295,6 +416,10 @@ server.serve_forever(poll_interval=0.1)
         ...(targetPort ? { target: { host: '127.0.0.1', port: targetPort, free: targetPortFree } } : {}),
         units: stopped,
         ports: portStates,
+        wslSession: {
+          activeUntilCleanup: wslSessionActiveBeforeStop,
+          close: wslSessionClose,
+        },
         cleanup: 'transient units stopped; exact per-run directory removed',
       };
       if (evidenceFile) fs.writeFileSync(evidenceFile, `${JSON.stringify(evidence, null, 2)}\n`, { flag: 'wx', encoding: 'utf8' });
@@ -317,6 +442,7 @@ server.serve_forever(poll_interval=0.1)
       },
       readCounter,
       isListening,
+      isWslSessionActive() { return wslSession.isRunning; },
       isTargetListening() { return targetPortListening(targetPort); },
       rotateB,
       cleanup,
@@ -326,6 +452,11 @@ server.serve_forever(poll_interval=0.1)
       try { await stopUnitAndWait(unit); } catch { /* 保留原始錯誤與精確 unit 名稱供診斷 */ }
     }
     try { runWsl(['rm', '-rf', '--', root]); } catch { /* 目錄僅在該 run 建立 */ }
+    if (wslSession) {
+      try { await wslSession.stop(); } catch (cleanupError) {
+        error.message += `；WSL fixture session 清理失敗：${cleanupError.message}`;
+      }
+    }
     throw error;
   }
 }
