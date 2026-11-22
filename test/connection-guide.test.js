@@ -47,6 +47,7 @@ test('建立指南驗證四步流程、新舊金鑰、授權及主動檢查結�
     await page.getByRole('button', { name: '上一步' }).click();
     assert.equal(await page.locator('[name="alias"]').inputValue(), 'new-guide');
     await page.getByRole('button', { name: '下一步' }).click();
+    await page.locator('#guide-step-title').filter({ hasText: '步驟 2' }).waitFor();
     assert.equal(await page.getByRole('button', { name: '下一步' }).isDisabled(), true, '返回登入金鑰步驟後仍需明確選擇');
     await page.getByRole('button', { name: '建立新金鑰' }).click();
     await page.getByRole('button', { name: '下一步' }).waitFor({ state: 'visible' });
@@ -62,9 +63,9 @@ test('建立指南驗證四步流程、新舊金鑰、授權及主動檢查結�
     await page.getByRole('button', { name: '下一步' }).click();
     await page.getByRole('button', { name: '上一步' }).click();
     await page.getByRole('button', { name: '上一步' }).click();
-    await page.locator('summary', { hasText: '使用其他既有金鑰路徑' }).click();
-    await page.getByLabel('使用其他既有金鑰').check();
-    await page.locator('[name="keyPath"]').fill(existingKey.keyPath);
+    const existingKeyChoice = page.locator(`input[name="key-mode"][value="${existingKey.id}"]`);
+    await existingKeyChoice.waitFor({ state: 'visible' });
+    await existingKeyChoice.check();
     await page.getByRole('button', { name: '下一步' }).click();
     await page.waitForTimeout(100);
     assert.match(await page.locator('#guide-step-title').textContent(), /步驟 3/, JSON.stringify({ title: await page.locator('#guide-step-title').textContent(), alert: await page.getByRole('alert').textContent().catch(() => '') }));
@@ -126,10 +127,10 @@ test('建立指南驗證四步流程、新舊金鑰、授權及主動檢查結�
     await page.locator('[name="username"]').fill('bob');
     await page.getByRole('button', { name: '下一步' }).click();
     await page.locator('#guide-step-title').filter({ hasText: '步驟 2' }).waitFor();
-    assert.equal(await page.locator('input[name="key-mode"][value="existing"]').isChecked(), true, '已關聯登入金鑰的主機應明確沿用既有金鑰');
-    assert.equal(await page.locator('[name="keyPath"]').inputValue(), existingKey.keyPath);
-    await page.getByLabel('使用既有金鑰').check();
-    await page.locator('[name="keyPath"]').fill(existingKey.keyPath);
+    const currentKeyChoice = page.locator('input[name="key-mode"][value="current"]');
+    await currentKeyChoice.waitFor({ state: 'visible' });
+    await currentKeyChoice.check();
+    assert.equal(await currentKeyChoice.isChecked(), true, '已關聯登入金鑰的主機應明確沿用目前金鑰');
     assert.match(await page.locator('#connection-guide-app').textContent(), /執行 sshdeck 的電腦/);
     await page.getByRole('button', { name: '下一步' }).click();
     await page.locator('#guide-step-title').filter({ hasText: '步驟 3' }).waitFor();
@@ -258,6 +259,11 @@ test('指南檢查沿用主動解鎖與主機指紋確認，不連線遠端', {
     await page.locator('[name="username"]').fill('tester');
     await page.getByRole('button', { name: '下一步' }).click();
     await page.locator('#guide-step-title').filter({ hasText: '步驟 2' }).waitFor();
+    await page.locator('input[name="key-mode"][value="current"]').check();
+    await page.waitForFunction(() => {
+      const next = [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === '下一步');
+      return next && !next.disabled;
+    });
     await page.getByRole('button', { name: '下一步' }).click();
     await page.locator('#guide-step-title').filter({ hasText: '步驟 3' }).waitFor();
     assert.equal(await page.locator('#connection-guide-app input[type="checkbox"]').count(), 0);
