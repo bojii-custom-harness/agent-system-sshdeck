@@ -259,6 +259,9 @@ async function stopUnitsBestEffort(units, stopAndWaitForUnit, confirmUnitStopped
   for (const unit of [...units].reverse()) {
     try {
       const loadState = await stopAndWaitForUnit(unit);
+      if (loadState !== 'not-found') {
+        throw new Error(`未確認 OpenSSH transient unit state：${unit} ${String(loadState)}`);
+      }
       const attempt = { unit, stopped: true, loadState };
       attempts.push(attempt);
       stopped.push({ unit, loadState });
@@ -317,6 +320,23 @@ function portAvailable(port) {
       server.close((error) => error ? reject(error) : resolve(true));
     });
   });
+}
+
+async function waitForPortAvailability(port, checkPortAvailable, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  const checks = [];
+  while (true) {
+    let free;
+    try {
+      free = await checkPortAvailable(port);
+    } catch (error) {
+      checks.push({ free: null, error: error.message });
+      return { free: null, checks, error };
+    }
+    checks.push({ free });
+    if (free || Date.now() >= deadline) return { free, checks };
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
 }
 
 async function waitForPort(port, host = '127.0.0.1', timeoutMs = 10_000) {
@@ -378,6 +398,7 @@ async function createOpenSshServiceFixture({
     unitIsStopped: confirmUnitStopped = unitIsStopped,
     targetPortListening: isTargetPortListening = targetPortListening,
     fingerprintFor: getFingerprint = fingerprintFor,
+    portReleaseTimeoutMs = 5000,
   } = dependencies;
   if (typeof authorizedPublicKey !== 'string' || !authorizedPublicKey.startsWith('ssh-ed25519 ')) {
     throw new Error('fixture 需要隔離測試用 Ed25519 公鑰');
@@ -424,7 +445,7 @@ async function createOpenSshServiceFixture({
     `sshdeck-ticket01-${runId}-b.service`,
   ];
   const targetUnit = `sshdeck-ticket01-${runId}-echo.service`;
-  const startedUnits = new Set();
+  const unitsToClean = new Set();
   let targetPort;
   const authorizedKeyOptions = [
     'no-agent-forwarding',
@@ -501,17 +522,19 @@ pathlib.Path(sys.argv[1]).write_text(str(server.server_address[1]), encoding="as
 server.serve_forever(poll_interval=0.1)
 `;
       runWslCommand(['bash', '-lc', `cat > '${root}/echo.py' <<'FIXTURE_ECHO'\n${echoScript}FIXTURE_ECHO`]);
+      // WSL wrapper 可能在遠端 unit 已啟動後才回報失敗，先記下唯一 unit ID。
+      unitsToClean.add(targetUnit);
       runWslCommand(['systemd-run', '--collect', `--unit=${targetUnit}`, '--property=RuntimeMaxSec=900',
         'python3', '-u', `${root}/echo.py`, `${root}/target-port`]);
-      startedUnits.add(targetUnit);
       targetPort = await waitUntilTargetPort(`${root}/target-port`);
     }
     runWslCommand(['bash', '-lc', createSshdConfigScript()]);
     for (const [index, endpoint] of ['a', 'b'].entries()) {
       const unit = units[index];
+      // 同上：systemd-run 的遠端副作用可能先於本機 wrapper 的失敗結果。
+      unitsToClean.add(unit);
       runWslCommand(['systemd-run', '--collect', `--unit=${unit}`, '--property=RuntimeMaxSec=900',
         '/usr/sbin/sshd', '-D', '-e', '-f', `${root}/sshd-${endpoint}.conf`]);
-      startedUnits.add(unit);
       await waitUntilUnit(unit);
       await waitUntilPort(ports[index]);
       await waitUntilPort(ports[index], sshHost);
@@ -563,7 +586,7 @@ server.serve_forever(poll_interval=0.1)
       const rootState = { path: root, removed: false, blockedBy: [] };
       try {
         unitCleanup = await stopUnitsBestEffort(
-          [...startedUnits],
+          [...unitsToClean],
           stopAndWaitForUnit,
           confirmUnitStopped,
         );
@@ -571,34 +594,20 @@ server.serve_forever(poll_interval=0.1)
           addCleanupError(item.phase, item.unit, item.error);
         }
 
-        if (unitCleanup.allStopped) {
-          try {
-            runWslCommand(['rm', '-rf', '--', root]);
-            rootState.removed = true;
-          } catch (error) {
-            addCleanupError('remove-run-root', root, error);
-            residualResources.push({ type: 'directory', path: root, reason: error.message });
-          }
-        } else {
-          rootState.blockedBy = [...unitCleanup.unresolvedUnits];
-          residualResources.push({
-            type: 'directory',
-            path: root,
-            reason: '尚有 transient unit 未確認停止，為避免刪除仍使用中的檔案而保留',
-            blockedBy: [...unitCleanup.unresolvedUnits],
-          });
-          for (const unit of unitCleanup.unresolvedUnits) {
-            residualResources.push({
-              type: 'systemd-unit',
-              name: unit,
-              reason: '停止失敗且未能確認 unit 已卸載',
-            });
-          }
-        }
-
         for (const port of ports) {
           try {
-            portStates.push({ port, free: await checkPortAvailable(port) });
+            const availability = await waitForPortAvailability(
+              port,
+              checkPortAvailable,
+              portReleaseTimeoutMs,
+            );
+            portStates.push({
+              port,
+              free: availability.free,
+              checks: availability.checks,
+              ...(availability.error ? { error: availability.error.message } : {}),
+            });
+            if (availability.error) addCleanupError('check-ssh-port', String(port), availability.error);
           } catch (error) {
             portStates.push({ port, free: null, error: error.message });
             addCleanupError('check-ssh-port', String(port), error);
@@ -611,6 +620,24 @@ server.serve_forever(poll_interval=0.1)
             occupiedPorts.join(','),
             new Error(`清理後 OpenSSH fixture port 仍被占用：${occupiedPorts.join(', ')}`),
           );
+          for (const port of occupiedPorts) {
+            residualResources.push({
+              type: 'listener',
+              host: 'OpenSSH fixture',
+              port,
+              state: 'listening',
+              reason: '確認等待後 fixture SSH port 仍被占用',
+            });
+          }
+        }
+        for (const item of portStates.filter((portState) => portState.free === null)) {
+          residualResources.push({
+            type: 'listener',
+            host: 'OpenSSH fixture',
+            port: item.port,
+            state: 'unknown',
+            reason: `無法確認 SSH port 狀態：${item.error || 'port probe failed'}`,
+          });
         }
 
         if (targetPort) {
@@ -622,12 +649,65 @@ server.serve_forever(poll_interval=0.1)
                 String(targetPort),
                 new Error(`清理後 direct-tcpip target port 仍被占用：${targetPort}`),
               );
+              residualResources.push({
+                type: 'listener',
+                host: '127.0.0.1',
+                port: targetPort,
+                state: 'listening',
+                reason: '清理後 direct-tcpip target listener 仍存在',
+              });
             }
           } catch (error) {
             targetPortFree = null;
             addCleanupError('check-target-port', String(targetPort), error);
+            residualResources.push({
+              type: 'listener',
+              host: '127.0.0.1',
+              port: targetPort,
+              state: 'unknown',
+              reason: `無法確認 target listener 狀態：${error.message}`,
+            });
           }
         }
+
+        const rootBlockers = [...(unitCleanup?.unresolvedUnits || [])];
+        for (const item of portStates) {
+          if (item.free !== true) {
+            rootBlockers.push(`port:${item.port}:${item.free === false ? 'occupied' : 'unknown'}`);
+          }
+        }
+        if (targetPort && targetPortFree !== true) {
+          rootBlockers.push(`target-listener:${targetPort}:${targetPortFree === false ? 'present' : 'unknown'}`);
+        }
+        const listenersClear = portStates.length === ports.length
+          && portStates.every((item) => item.free === true)
+          && (!targetPort || targetPortFree === true);
+        if (root && unitCleanup?.allStopped && listenersClear) {
+          try {
+            runWslCommand(['rm', '-rf', '--', root]);
+            rootState.removed = true;
+          } catch (error) {
+            addCleanupError('remove-run-root', root, error);
+            residualResources.push({ type: 'directory', path: root, reason: error.message });
+          }
+        } else if (root) {
+          rootState.blockedBy = rootBlockers;
+          for (const unit of unitCleanup?.unresolvedUnits || []) {
+            residualResources.push({
+              type: 'systemd-unit',
+              name: unit,
+              state: 'not-confirmed-stopped',
+              reason: '停止失敗且未能確認 unit 已卸載',
+            });
+          }
+          residualResources.push({
+            type: 'directory',
+            path: root,
+            reason: '尚有 unit 或 listener/port 狀態未確認清除，為避免刪除仍使用中的檔案而保留',
+            blockedBy: rootBlockers,
+          });
+        }
+
         try {
           wslSessionActiveBeforeStop = wslSession.isRunning;
         } catch (error) {
@@ -703,81 +783,278 @@ server.serve_forever(poll_interval=0.1)
     const cleanupFailures = [];
     const cleanupErrorDetails = [];
     const residualResources = [];
-    const unitCleanup = await stopUnitsBestEffort(
-      [...startedUnits],
-      stopAndWaitForUnit,
-      confirmUnitStopped,
-    );
-    for (const item of unitCleanup.errors) {
-      cleanupFailures.push(item.error);
-      cleanupErrorDetails.push({
-        phase: item.phase,
-        resource: item.unit,
-        error: item.error.message,
-      });
-    }
+    const addCleanupError = (phase, resource, cleanupError) => {
+      cleanupFailures.push(cleanupError);
+      cleanupErrorDetails.push({ phase, resource, error: cleanupError.message });
+    };
+    const attemptedUnits = [...unitsToClean];
+    const targetUnitAttempted = unitsToClean.has(targetUnit);
+    let targetListenerFree;
+    let targetPortLookupFailed = false;
+    const portsAfterCleanup = [];
+    let unitCleanup = {
+      attempts: [],
+      stopped: [],
+      errors: [],
+      unresolvedUnits: [...attemptedUnits],
+      allStopped: attemptedUnits.length === 0,
+    };
+    const cleanupReport = {
+      primaryError: {
+        phase: 'setup',
+        resource: 'OpenSSH fixture setup',
+        error: error.message,
+      },
+      units: [],
+      unitAttempts: [],
+      ports: portsAfterCleanup,
+      ...(targetUnitAttempted ? { target: { host: '127.0.0.1', port: null, listening: null } } : {}),
+      root: { path: root, removed: false, blockedBy: [] },
+      residualResources,
+      errors: cleanupErrorDetails,
+      wslSession: { activeUntilCleanup: null, close: null },
+    };
 
-    const rootCleanup = { path: root, removed: false, blockedBy: [] };
-    if (root && unitCleanup.allStopped) {
-      try {
-        runWslCommand(['rm', '-rf', '--', root]);
-        rootCleanup.removed = true;
-      } catch (cleanupError) {
-        cleanupFailures.push(cleanupError);
-        cleanupErrorDetails.push({
-          phase: 'remove-run-root',
-          resource: root,
-          error: cleanupError.message,
-        });
-        residualResources.push({ type: 'directory', path: root, reason: cleanupError.message });
+    try {
+      // 若 echo unit 的 wrapper 失敗，先從 run-scoped 檔案找回動態 port，
+      // 才能在停止 unit 後確認該 listener 是否已消失。
+      if (targetUnitAttempted && root && !targetPort) {
+        try {
+          targetPort = await waitUntilTargetPort(`${root}/target-port`, 1000);
+          cleanupReport.target.port = targetPort;
+        } catch (cleanupError) {
+          targetPortLookupFailed = true;
+          addCleanupError('resolve-target-port', targetUnit, cleanupError);
+          residualResources.push({
+            type: 'listener',
+            unit: targetUnit,
+            host: '127.0.0.1',
+            port: null,
+            state: 'unknown',
+            reason: `無法讀取 echo target port：${cleanupError.message}`,
+          });
+        }
       }
-    } else if (root) {
-      rootCleanup.blockedBy = [...unitCleanup.unresolvedUnits];
-      residualResources.push({
-        type: 'directory',
-        path: root,
-        reason: '尚有 transient unit 未確認停止，為避免刪除仍使用中的檔案而保留',
-        blockedBy: [...unitCleanup.unresolvedUnits],
-      });
+
+      try {
+        unitCleanup = await stopUnitsBestEffort(
+          attemptedUnits,
+          stopAndWaitForUnit,
+          confirmUnitStopped,
+        );
+      } catch (cleanupError) {
+        addCleanupError('stop-units', attemptedUnits.join(','), cleanupError);
+        unitCleanup.unresolvedUnits = [...attemptedUnits];
+        unitCleanup.allStopped = attemptedUnits.length === 0;
+      }
+      for (const item of unitCleanup.errors) {
+        addCleanupError(item.phase, item.unit, item.error);
+      }
+      cleanupReport.units = unitCleanup.stopped;
+      cleanupReport.unitAttempts = unitCleanup.attempts;
+
       for (const unit of unitCleanup.unresolvedUnits) {
+        const attempt = unitCleanup.attempts.find((item) => item.unit === unit);
         residualResources.push({
           type: 'systemd-unit',
           name: unit,
-          reason: '停止失敗且未能確認 unit 已卸載',
+          state: 'not-confirmed-stopped',
+          reason: attempt?.stopError || '無法確認 transient unit 已卸載',
         });
+      }
+
+      if (attemptedUnits.length > 0) {
+        for (const port of ports) {
+          try {
+            const availability = await waitForPortAvailability(
+              port,
+              checkPortAvailable,
+              portReleaseTimeoutMs,
+            );
+            portsAfterCleanup.push({
+              port,
+              free: availability.free,
+              checks: availability.checks,
+              ...(availability.error ? { error: availability.error.message } : {}),
+            });
+            if (availability.error) {
+              addCleanupError('check-ssh-port', String(port), availability.error);
+            }
+            if (availability.free === false) {
+              addCleanupError(
+                'verify-ssh-port',
+                String(port),
+                new Error(`setup cleanup 後 OpenSSH fixture port 仍被占用：${port}`),
+              );
+              residualResources.push({
+                type: 'listener',
+                host: 'OpenSSH fixture',
+                port,
+                state: 'listening',
+                reason: 'setup cleanup 後固定 SSH port 仍被占用',
+              });
+            }
+            if (availability.free === null) {
+              residualResources.push({
+                type: 'listener',
+                host: 'OpenSSH fixture',
+                port,
+                state: 'unknown',
+                reason: `無法確認 SSH port 狀態：${availability.error?.message || 'port probe failed'}`,
+              });
+            }
+          } catch (cleanupError) {
+            portsAfterCleanup.push({ port, free: null, error: cleanupError.message });
+            addCleanupError('check-ssh-port', String(port), cleanupError);
+            residualResources.push({
+              type: 'listener',
+              host: 'OpenSSH fixture',
+              port,
+              state: 'unknown',
+              reason: `無法確認 SSH port 狀態：${cleanupError.message}`,
+            });
+          }
+        }
+      }
+
+      if (targetUnitAttempted && targetPort) {
+        try {
+          const listening = await isTargetPortListening(targetPort);
+          targetListenerFree = !listening;
+          cleanupReport.target = { host: '127.0.0.1', port: targetPort, listening };
+          if (listening) {
+            addCleanupError(
+              'verify-target-port',
+              String(targetPort),
+              new Error(`setup cleanup 後 direct-tcpip target port 仍被占用：${targetPort}`),
+            );
+            residualResources.push({
+              type: 'listener',
+              unit: targetUnit,
+              host: '127.0.0.1',
+              port: targetPort,
+              state: 'listening',
+              reason: 'setup cleanup 後 echo target listener 仍存在',
+            });
+          }
+        } catch (cleanupError) {
+          targetListenerFree = false;
+          cleanupReport.target = {
+            host: '127.0.0.1',
+            port: targetPort,
+            listening: null,
+            error: cleanupError.message,
+          };
+          addCleanupError('check-target-port', String(targetPort), cleanupError);
+          residualResources.push({
+            type: 'listener',
+            unit: targetUnit,
+            host: '127.0.0.1',
+            port: targetPort,
+            state: 'unknown',
+            reason: `無法確認 target listener 狀態：${cleanupError.message}`,
+          });
+        }
+      } else if (targetUnitAttempted) {
+        targetListenerFree = false;
+        cleanupReport.target = {
+          host: '127.0.0.1',
+          port: null,
+          listening: null,
+          error: targetPortLookupFailed ? 'target port lookup failed' : 'target port unavailable',
+        };
+      }
+
+      const blockers = [...unitCleanup.unresolvedUnits];
+      for (const item of unitCleanup.errors) {
+        if (item.unit) {
+          const blocker = `unit-cleanup-error:${item.unit}`;
+          if (!blockers.includes(blocker)) blockers.push(blocker);
+        }
+      }
+      for (const item of portsAfterCleanup) {
+        if (item.free !== true) blockers.push(`port:${item.port}:${item.free === false ? 'occupied' : 'unknown'}`);
+      }
+      if (targetUnitAttempted && targetListenerFree !== true) {
+        blockers.push(`target-listener:${targetPort ?? 'unknown'}:${targetListenerFree === false ? 'present-or-unknown' : 'unknown'}`);
+      }
+      const listenersClear = attemptedUnits.length === 0
+        || (portsAfterCleanup.length === ports.length
+          && portsAfterCleanup.every((item) => item.free === true)
+          && (!targetUnitAttempted || targetListenerFree === true));
+      const safeToRemoveRoot = unitCleanup.allStopped
+        && unitCleanup.errors.length === 0
+        && cleanupFailures.length === 0
+        && listenersClear;
+      cleanupReport.allStopped = safeToRemoveRoot;
+
+      if (root && safeToRemoveRoot) {
+        try {
+          runWslCommand(['rm', '-rf', '--', root]);
+          cleanupReport.root.removed = true;
+        } catch (cleanupError) {
+          addCleanupError('remove-run-root', root, cleanupError);
+          residualResources.push({ type: 'directory', path: root, reason: cleanupError.message });
+        }
+      } else if (root) {
+        cleanupReport.root.blockedBy = blockers;
+        residualResources.push({
+          type: 'directory',
+          path: root,
+          reason: '尚有 unit 或 listener/port 狀態未確認清除，為避免刪除仍使用中的檔案而保留',
+          blockedBy: blockers,
+        });
+      }
+    } catch (cleanupError) {
+      addCleanupError('setup-cleanup', root || 'OpenSSH fixture setup', cleanupError);
+      if (root && !cleanupReport.root.removed) {
+        const blocker = `cleanup-error:${cleanupError.message}`;
+        cleanupReport.root.blockedBy = [...cleanupReport.root.blockedBy, blocker];
+        residualResources.push({
+          type: 'directory',
+          path: root,
+          reason: 'setup cleanup 發生未預期錯誤，保留 run root',
+          blockedBy: cleanupReport.root.blockedBy,
+        });
+      }
+    } finally {
+      if (wslSession) {
+        try {
+          cleanupReport.wslSession.activeUntilCleanup = wslSession.isRunning;
+        } catch (cleanupError) {
+          addCleanupError('check-wsl-session', 'WSL fixture session', cleanupError);
+        }
+        try {
+          cleanupReport.wslSession.close = await wslSession.stop();
+        } catch (cleanupError) {
+          cleanupReport.wslSession.stopError = cleanupError.message;
+          addCleanupError('stop-wsl-session', 'WSL fixture session', cleanupError);
+        }
+      } else if (typeof error.cleanup === 'function') {
+        try {
+          await error.cleanup();
+        } catch (cleanupError) {
+          cleanupReport.wslSession.childStopError = cleanupError.message;
+          addCleanupError('stop-wsl-child', 'WSL fixture child', cleanupError);
+        }
+      } else {
+        cleanupReport.wslSession.childCleanupAttempted = false;
       }
     }
 
-    if (wslSession) {
+    cleanupReport.residualResources = residualResources;
+    cleanupReport.errors = cleanupErrorDetails;
+    if (evidenceFile) {
       try {
-        await wslSession.stop();
-      } catch (cleanupError) {
-        cleanupFailures.push(cleanupError);
-        cleanupErrorDetails.push({
-          phase: 'stop-wsl-session',
-          resource: 'WSL fixture session',
-          error: cleanupError.message,
+        fs.writeFileSync(evidenceFile, `${JSON.stringify(cleanupReport, null, 2)}\n`, {
+          flag: 'wx',
+          encoding: 'utf8',
         });
-      }
-    } else if (typeof error.cleanup === 'function') {
-      try {
-        await error.cleanup();
       } catch (cleanupError) {
-        cleanupFailures.push(cleanupError);
-        cleanupErrorDetails.push({
-          phase: 'stop-wsl-child',
-          resource: 'WSL fixture child',
-          error: cleanupError.message,
-        });
+        addCleanupError('write-cleanup-evidence', evidenceFile, cleanupError);
+        cleanupReport.errors = [...cleanupErrorDetails];
       }
     }
-    const cleanupReport = {
-      units: unitCleanup.stopped,
-      unitAttempts: unitCleanup.attempts,
-      root: rootCleanup,
-      residualResources,
-      errors: cleanupErrorDetails,
-    };
     const failure = combineCleanupErrors(
       [error, ...cleanupFailures],
       'OpenSSH fixture setup 與 cleanup 均有錯誤',

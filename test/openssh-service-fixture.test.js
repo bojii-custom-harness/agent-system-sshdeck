@@ -98,12 +98,16 @@ function fakeFixtureDependencies({
   targetPortError,
   failUnitCleanup = true,
   unitStopped = async () => false,
+  portAvailability,
+  portReleaseTimeoutMs,
 } = {}) {
   const runId = randomUUID();
   const primaryError = new Error('fixture unit cleanup failed');
   const unitCleanupCalls = [];
   const runWslCalls = [];
   const portChecks = [];
+  const portCheckCounts = new Map();
+  const events = [];
   const session = {
     isRunning: true,
     stopCalls: 0,
@@ -115,14 +119,24 @@ function fakeFixtureDependencies({
   };
   const dependencies = {
     getPrivateWslHostAddress: () => '172.19.24.36',
+    ...(portReleaseTimeoutMs === undefined ? {} : { portReleaseTimeoutMs }),
     portAvailable: async (port) => {
       portChecks.push(port);
       if (portError && portChecks.length === 3) throw portError;
-      return true;
+      const count = (portCheckCounts.get(port) || 0) + 1;
+      portCheckCounts.set(port, count);
+      const free = count === 1
+        ? true
+        : portAvailability
+          ? portAvailability(port, count)
+          : true;
+      events.push({ type: 'port-check', port, free });
+      return free;
     },
     startWslSession: async () => session,
     runWsl(args) {
       runWslCalls.push(args);
+      if (args[0] === 'rm') events.push({ type: 'remove-root', path: args.at(-1) });
       if (args[0] === 'mktemp') return `/tmp/sshdeck-ticket01-${runId}-Abc123`;
       return '';
     },
@@ -150,6 +164,106 @@ function fakeFixtureDependencies({
     unitCleanupCalls,
     runWslCalls,
     portChecks,
+    events,
+  };
+}
+
+function fakeSetupFailureDependencies({
+  stopError,
+  stopErrorAfterStopping = false,
+  stopResult = 'not-found',
+  sessionError,
+  occupiedPorts = [],
+  portReleaseTimeoutMs,
+} = {}) {
+  const runId = randomUUID();
+  const root = `/tmp/sshdeck-ticket01-${runId}-Abc123`;
+  const wrapperError = new Error('wsl.exe wrapper timed out after remote systemd-run side effect');
+  const systemdRunUnits = [];
+  const unitCleanupCalls = [];
+  const unitStateChecks = [];
+  const runWslCalls = [];
+  const portChecks = [];
+  const targetPortChecks = [];
+  const targetPortResolutions = [];
+  const portCheckCounts = new Map();
+  const activeUnits = new Set();
+  const listeningTargetPorts = new Set();
+  const session = {
+    stopCalls: 0,
+    get isRunning() {
+      return this.stopCalls === 0;
+    },
+    async stop() {
+      this.stopCalls += 1;
+      if (sessionError) throw sessionError;
+      return { code: 0, signal: null };
+    },
+  };
+  const dependencies = {
+    getPrivateWslHostAddress: () => '172.19.24.36',
+    ...(portReleaseTimeoutMs === undefined ? {} : { portReleaseTimeoutMs }),
+    portAvailable: async (port) => {
+      portChecks.push(port);
+      const calls = (portCheckCounts.get(port) || 0) + 1;
+      portCheckCounts.set(port, calls);
+      return calls === 1 || !occupiedPorts.includes(port);
+    },
+    startWslSession: async () => session,
+    runWsl(args) {
+      runWslCalls.push(args);
+      if (args[0] === 'mktemp') return root;
+      if (args[0] === 'systemd-run') {
+        const unit = args.find((argument) => argument.startsWith('--unit='))?.slice('--unit='.length);
+        systemdRunUnits.push(unit);
+        activeUnits.add(unit);
+        if (unit.endsWith('-echo.service')) listeningTargetPorts.add(34567);
+        throw wrapperError;
+      }
+      return '';
+    },
+    waitForUnit: async () => {},
+    waitForPort: async () => {},
+    waitForTargetPort: async (file) => {
+      targetPortResolutions.push(file);
+      return 34567;
+    },
+    stopUnitAndWait: async (unit) => {
+      unitCleanupCalls.push(unit);
+      if (stopError) {
+        if (stopErrorAfterStopping) {
+          activeUnits.delete(unit);
+          if (unit.endsWith('-echo.service')) listeningTargetPorts.delete(34567);
+        }
+        throw stopError;
+      }
+      if (stopResult !== 'not-found') return stopResult;
+      activeUnits.delete(unit);
+      if (unit.endsWith('-echo.service')) listeningTargetPorts.delete(34567);
+      return stopResult;
+    },
+    unitIsStopped: async (unit) => {
+      unitStateChecks.push(unit);
+      return !activeUnits.has(unit);
+    },
+    targetPortListening(port) {
+      targetPortChecks.push(port);
+      return listeningTargetPorts.has(port);
+    },
+    fingerprintFor: () => 'SHA256:fixture',
+  };
+  return {
+    dependencies,
+    root,
+    wrapperError,
+    systemdRunUnits,
+    unitCleanupCalls,
+    unitStateChecks,
+    runWslCalls,
+    portChecks,
+    targetPortChecks,
+    targetPortResolutions,
+    session,
   };
 }
 
@@ -253,6 +367,206 @@ test('WSL fixture stop 以 stdin EOF 關閉 keeper 並收斂而不強制終止 c
   assert.equal(session.isRunning, false);
 });
 
+test('OpenSSH fixture wrapper 在遠端 unit 啟動後失敗時確認 unit 與 listeners 再移除 root', async () => {
+  const fake = fakeSetupFailureDependencies();
+  let setupError;
+  try {
+    await createOpenSshServiceFixture({
+      authorizedPublicKey: 'ssh-ed25519 test-key',
+      allowDirectTcpip: true,
+    }, fake.dependencies);
+  } catch (error) {
+    setupError = error;
+  }
+
+  assert.equal(fake.systemdRunUnits.length, 1, 'fake systemd-run 必須先產生遠端啟動副作用');
+  const attemptedUnit = fake.systemdRunUnits[0];
+  assert.ok(fake.unitCleanupCalls.includes(attemptedUnit), 'wrapper 失敗後仍須以 exact unit ID 執行 cleanup');
+  assert.deepEqual(fake.targetPortResolutions, [`${fake.root}/target-port`]);
+  assert.deepEqual(fake.targetPortChecks, [34567], 'target listener 必須在 root 移除前查核');
+  assert.deepEqual(fake.portChecks.slice(0, 2), [2227, 2228], 'setup failure 後須重查兩個 SSH ports');
+  assert.equal(fake.portChecks.at(-1), 2228);
+  assert.ok(fake.portChecks.slice(2, -1).every((port) => port === 2227), '占用 port 必須有界重查');
+  assert.equal(fake.session.stopCalls, 1, 'setup failure cleanup 必須停止 WSL session');
+  assert.ok(setupError, 'setup 必須保留 wrapper failure');
+  assert.equal(setupError.message, fake.wrapperError.message);
+  assert.deepEqual(setupError.cleanupReport.primaryError, {
+    phase: 'setup',
+    resource: 'OpenSSH fixture setup',
+    error: fake.wrapperError.message,
+  });
+  assert.equal(setupError.cleanupReport.root.path, fake.root);
+  assert.equal(setupError.cleanupReport.root.removed, true);
+  assert.ok(
+    setupError.cleanupReport.units.some((unit) => unit.unit === attemptedUnit && unit.loadState === 'not-found'),
+    'cleanup evidence 必須確認遠端 unit 已卸載',
+  );
+  assert.deepEqual(setupError.cleanupReport.ports.map(({ port, free }) => ({ port, free })), [
+    { port: 2227, free: true },
+    { port: 2228, free: true },
+  ]);
+  assert.deepEqual(setupError.cleanupReport.target, {
+    host: '127.0.0.1',
+    port: 34567,
+    listening: false,
+  });
+  assert.deepEqual(setupError.cleanupReport.wslSession, {
+    activeUntilCleanup: true,
+    close: { code: 0, signal: null },
+  });
+});
+
+test('OpenSSH fixture setup cleanup 無法停止 active unit 時保留 listener 與 run root', async () => {
+  const stopError = new Error('systemd unit stop failed');
+  const sessionError = new Error('WSL fixture session stop failed');
+  const fake = fakeSetupFailureDependencies({ stopError, sessionError });
+  let setupError;
+  try {
+    await createOpenSshServiceFixture({
+      authorizedPublicKey: 'ssh-ed25519 test-key',
+      allowDirectTcpip: true,
+    }, fake.dependencies);
+  } catch (error) {
+    setupError = error;
+  }
+
+  assert.ok(setupError instanceof AggregateError, 'setup 與 cleanup error 必須同時回報');
+  assert.equal(setupError.errors[0], fake.wrapperError, 'primary setup error 不得被 cleanup error 覆蓋');
+  assert.ok(setupError.errors.includes(stopError), 'unit stop error 必須保留');
+  assert.ok(setupError.errors.includes(sessionError), 'session stop error 必須與 setup error 一併保留');
+  assert.equal(fake.systemdRunUnits.length, 1, '遠端副作用必須先於 wrapper error 發生');
+  const attemptedUnit = fake.systemdRunUnits[0];
+  assert.ok(fake.unitCleanupCalls.includes(attemptedUnit), '必須停止 exact run-scoped unit');
+  assert.ok(fake.unitStateChecks.includes(attemptedUnit), 'stop 失敗後必須查詢 exact unit 狀態');
+  assert.deepEqual(fake.targetPortChecks, [34567], '即使 unit 未停止仍須查核 listener');
+  assert.equal(fake.session.stopCalls, 1, '不安全 cleanup 仍須停止 WSL session');
+  assert.deepEqual(setupError.cleanupReport.wslSession, {
+    activeUntilCleanup: true,
+    close: null,
+    stopError: sessionError.message,
+  });
+  assert.equal(setupError.cleanupReport.root.path, fake.root);
+  assert.equal(setupError.cleanupReport.root.removed, false, 'unit/listener 未清除時不得移除 root');
+  assert.ok(setupError.cleanupReport.root.blockedBy.includes(attemptedUnit));
+  assert.ok(setupError.cleanupReport.root.blockedBy.includes('target-listener:34567:present-or-unknown'));
+  assert.ok(
+    setupError.cleanupReport.residualResources.some(
+      (resource) => resource.type === 'systemd-unit' && resource.name === attemptedUnit,
+    ),
+    'cleanup report 必須列出仍未確認停止的 unit',
+  );
+  assert.ok(
+    setupError.cleanupReport.residualResources.some(
+      (resource) => resource.type === 'listener' && resource.port === 34567 && resource.state === 'listening',
+    ),
+    'cleanup report 必須列出殘留 target listener',
+  );
+  assert.ok(
+    setupError.cleanupReport.residualResources.some(
+      (resource) => resource.type === 'directory' && resource.path === fake.root,
+    ),
+    'cleanup report 必須列出保留的精確 run root',
+  );
+  assert.deepEqual(
+    setupError.cleanupReport.errors.map(({ phase }) => phase),
+    ['stop-unit', 'verify-target-port', 'stop-wsl-session'],
+  );
+});
+
+test('OpenSSH fixture setup cleanup 遇到未確認 unit state 時保留 run root', async () => {
+  const fake = fakeSetupFailureDependencies({ stopResult: 'active' });
+  let setupError;
+  try {
+    await createOpenSshServiceFixture({
+      authorizedPublicKey: 'ssh-ed25519 test-key',
+    }, fake.dependencies);
+  } catch (error) {
+    setupError = error;
+  }
+
+  assert.ok(setupError instanceof AggregateError, '未知 unit state 必須視為 cleanup failure');
+  assert.equal(setupError.errors[0], fake.wrapperError);
+  const attemptedUnit = fake.systemdRunUnits[0];
+  assert.ok(fake.unitCleanupCalls.includes(attemptedUnit));
+  assert.ok(fake.unitStateChecks.includes(attemptedUnit), '非 not-found 狀態後必須再查詢 unit');
+  assert.equal(setupError.cleanupReport.root.removed, false, '未知 unit state 時不得移除 root');
+  assert.ok(setupError.cleanupReport.root.blockedBy.includes(attemptedUnit));
+  assert.ok(
+    setupError.cleanupReport.residualResources.some(
+      (resource) => resource.type === 'systemd-unit'
+        && resource.name === attemptedUnit
+        && resource.state === 'not-confirmed-stopped',
+    ),
+    'cleanup report 必須將未知 state 明列為 unit residual',
+  );
+  assert.ok(setupError.errors.some((cleanupError) => /未確認.*unit state/.test(cleanupError.message)));
+  assert.equal(fake.runWslCalls.some((args) => args[0] === 'rm'), false);
+  assert.equal(fake.session.stopCalls, 1);
+});
+
+test('OpenSSH fixture setup cleanup stop 回報錯誤時即使確認 unit 已停止仍保留 run root', async () => {
+  const stopError = new Error('systemd stop wrapper failed after remote stop');
+  const fake = fakeSetupFailureDependencies({
+    stopError,
+    stopErrorAfterStopping: true,
+  });
+  let setupError;
+  try {
+    await createOpenSshServiceFixture({
+      authorizedPublicKey: 'ssh-ed25519 test-key',
+    }, fake.dependencies);
+  } catch (error) {
+    setupError = error;
+  }
+
+  assert.ok(setupError instanceof AggregateError, 'stop wrapper error 必須與 setup error 一併保留');
+  assert.equal(setupError.errors[0], fake.wrapperError);
+  assert.ok(setupError.errors.includes(stopError));
+  const attemptedUnit = fake.systemdRunUnits[0];
+  assert.ok(fake.unitStateChecks.includes(attemptedUnit), 'stop error 後必須查詢 exact unit state');
+  assert.ok(
+    setupError.cleanupReport.unitAttempts.some(
+      (attempt) => attempt.unit === attemptedUnit && attempt.verifiedAfterStopError === true,
+    ),
+    'evidence 必須呈現 stop error 後的狀態查核',
+  );
+  assert.equal(setupError.cleanupReport.root.removed, false, 'stop/query error 時不得移除 root');
+  assert.equal(setupError.cleanupReport.allStopped, false, 'stop/query error 時不得宣稱整體已停止');
+  assert.ok(setupError.cleanupReport.root.blockedBy.includes(`unit-cleanup-error:${attemptedUnit}`));
+  assert.equal(fake.runWslCalls.some((args) => args[0] === 'rm'), false);
+});
+
+test('OpenSSH fixture setup cleanup 發現固定 SSH port 殘留時保留 run root', async () => {
+  const fake = fakeSetupFailureDependencies({ occupiedPorts: [2227], portReleaseTimeoutMs: 1 });
+  let setupError;
+  try {
+    await createOpenSshServiceFixture({
+      authorizedPublicKey: 'ssh-ed25519 test-key',
+      allowDirectTcpip: true,
+    }, fake.dependencies);
+  } catch (error) {
+    setupError = error;
+  }
+
+  assert.ok(setupError instanceof AggregateError, 'setup 與殘留 listener 錯誤必須一併回報');
+  assert.equal(setupError.errors[0], fake.wrapperError);
+  const attemptedUnit = fake.systemdRunUnits[0];
+  assert.ok(fake.unitCleanupCalls.includes(attemptedUnit), '先停止造成 setup 失敗的 exact unit');
+  assert.deepEqual(fake.targetPortChecks, [34567], '仍須確認 echo target listener 已關閉');
+  assert.deepEqual(fake.portChecks.slice(0, 2), [2227, 2228]);
+  assert.equal(fake.portChecks.at(-1), 2228);
+  assert.equal(fake.session.stopCalls, 1);
+  assert.equal(setupError.cleanupReport.root.removed, false, '固定 SSH port 殘留時不得移除 root');
+  assert.ok(setupError.cleanupReport.root.blockedBy.includes('port:2227:occupied'));
+  assert.ok(
+    setupError.cleanupReport.residualResources.some(
+      (resource) => resource.type === 'listener' && resource.port === 2227 && resource.state === 'listening',
+    ),
+    'cleanup report 必須列出殘留固定 SSH listener',
+  );
+  assert.ok(setupError.errors.some((cleanupError) => /port 仍被占用：2227/.test(cleanupError.message)));
+});
+
 test('OpenSSH fixture 前置 cleanup 失敗時仍會停止 WSL session 並保留主要錯誤', async () => {
   const fake = fakeFixtureDependencies();
   const fixture = await createOpenSshServiceFixture({
@@ -299,6 +613,57 @@ test('OpenSSH fixture 只有在確認所有 unit 停止後才移除 root', async
   await assert.rejects(fixture.cleanup(), (error) => error === fake.primaryError);
   assert.equal(fake.unitCleanupCalls.length, 2, '首個 unit 失敗後仍須處理另一個 unit');
   assert.equal(fake.runWslCalls.some((args) => args[0] === 'rm'), true, '狀態確認所有 unit 停止後可移除 root');
+});
+
+test('OpenSSH fixture cleanup 在 port 短暫仍占用時重查後才移除 root', async () => {
+  const fake = fakeFixtureDependencies({
+    failUnitCleanup: false,
+    portAvailability: (port, call) => port !== 2227 || call >= 3,
+  });
+  const fixture = await createOpenSshServiceFixture({
+    authorizedPublicKey: 'ssh-ed25519 test-key',
+  }, fake.dependencies);
+
+  await fixture.cleanup();
+
+  const port2227Checks = fake.events.filter((event) => event.type === 'port-check' && event.port === 2227);
+  assert.deepEqual(port2227Checks, [
+    { type: 'port-check', port: 2227, free: true },
+    { type: 'port-check', port: 2227, free: false },
+    { type: 'port-check', port: 2227, free: true },
+  ], '清理須保留短暫占用觀察並重查至 listener 消失');
+  const finalPortCheck = Math.max(...fake.events
+    .map((event, index) => event.type === 'port-check' ? index : -1));
+  const rootRemoval = fake.events.findIndex((event) => event.type === 'remove-root');
+  assert.ok(rootRemoval > finalPortCheck, '所有 listener/port 狀態確認後才能移除 root');
+});
+
+test('OpenSSH fixture cleanup port listener 持續存在時保留 root', async () => {
+  const fake = fakeFixtureDependencies({
+    failUnitCleanup: false,
+    portReleaseTimeoutMs: 1,
+    portAvailability: (port) => port !== 2227,
+  });
+  const fixture = await createOpenSshServiceFixture({
+    authorizedPublicKey: 'ssh-ed25519 test-key',
+  }, fake.dependencies);
+  let cleanupError;
+  try {
+    await fixture.cleanup();
+  } catch (error) {
+    cleanupError = error;
+  }
+
+  assert.ok(cleanupError, '仍占用的 fixture port 必須作為 cleanup error 回報');
+  assert.equal(cleanupError.cleanupReport.rootCleanup.removed, false, 'port 仍占用時不得移除 root');
+  assert.ok(cleanupError.cleanupReport.rootCleanup.blockedBy.includes('port:2227:occupied'));
+  assert.ok(fake.events.every((event) => event.type !== 'remove-root'));
+  assert.ok(
+    cleanupError.cleanupReport.residualResources.some(
+      (resource) => resource.type === 'listener' && resource.port === 2227 && resource.state === 'listening',
+    ),
+    'cleanup evidence 必須列出仍占用的 listener',
+  );
 });
 
 test('OpenSSH fixture cleanup 同時失敗時保留主要與 session-stop 錯誤', async () => {
