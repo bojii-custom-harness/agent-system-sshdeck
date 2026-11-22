@@ -87,6 +87,23 @@ async function waitForPort(port, timeoutMs = 10_000) {
   throw new Error(`OpenSSH fixture port ${port} 未在期限內就緒`);
 }
 
+async function waitForTargetPort(file, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = runWslResult(['cat', file], { timeoutMs: 5000 });
+    const port = Number((result.stdout || '').trim());
+    if (result.status === 0 && Number.isInteger(port) && port > 0 && port <= 65535) return port;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('direct-tcpip echo target 未在期限內就緒');
+}
+
+function targetPortListening(port) {
+  if (!port) return false;
+  return runWsl(['ss', '-ltn']).split(/\r?\n/)
+    .some((line) => new RegExp(`:${port}(?:\\s|$)`).test(line));
+}
+
 function fingerprintFor(path) {
   const output = runWsl(['ssh-keygen', '-lf', `${path}.pub`, '-E', 'sha256']);
   const fingerprint = output.match(/SHA256:[^\s]+/)?.[0];
@@ -94,7 +111,12 @@ function fingerprintFor(path) {
   return fingerprint;
 }
 
-async function createOpenSshServiceFixture({ authorizedPublicKey, evidenceFile, enablePty = false } = {}) {
+async function createOpenSshServiceFixture({
+  authorizedPublicKey,
+  evidenceFile,
+  enablePty = false,
+  allowDirectTcpip = false,
+} = {}) {
   if (typeof authorizedPublicKey !== 'string' || !authorizedPublicKey.startsWith('ssh-ed25519 ')) {
     throw new Error('fixture 需要隔離測試用 Ed25519 公鑰');
   }
@@ -111,9 +133,14 @@ async function createOpenSshServiceFixture({ authorizedPublicKey, evidenceFile, 
     `sshdeck-ticket01-${runId}-a.service`,
     `sshdeck-ticket01-${runId}-b.service`,
   ];
-  const authorizedKeyOptions = enablePty
-    ? 'no-agent-forwarding,no-port-forwarding'
-    : 'no-agent-forwarding,no-port-forwarding,no-pty';
+  const targetUnit = `sshdeck-ticket01-${runId}-echo.service`;
+  const startedUnits = new Set();
+  let targetPort;
+  const authorizedKeyOptions = [
+    'no-agent-forwarding',
+    ...(allowDirectTcpip ? [] : ['no-port-forwarding']),
+    ...(enablePty ? [] : ['no-pty']),
+  ].join(',');
   const authorizedTestKey = `${authorizedKeyOptions} ${authorizedPublicKey}`;
   const fixtureCommands = {
     'target-a': "printf 'target-a\\n'",
@@ -138,14 +165,15 @@ KbdInteractiveAuthentication no
 UsePAM no
 StrictModes no
 AllowUsers root
-AllowTcpForwarding no
+AllowTcpForwarding ${allowDirectTcpip ? 'local' : 'no'}
+${allowDirectTcpip ? `PermitOpen 127.0.0.1:${targetPort}` : ''}
 AllowAgentForwarding no
 X11Forwarding no
 PermitTunnel no
 PermitTTY ${enablePty ? 'yes' : 'no'}
 LogLevel ERROR
 `;
-  const script = [
+  const createSshdConfigScript = () => [
     'set -eu',
     `ssh-keygen -q -t ed25519 -N '' -f '${root}/host-a'`,
     `ssh-keygen -q -t ed25519 -N '' -f '${root}/host-b'`,
@@ -160,15 +188,39 @@ LogLevel ERROR
     `/usr/sbin/sshd -t -f '${root}/sshd-b.conf'`,
   ].join('\n');
 
-  let startedUnits = 0;
   try {
     runWsl(['bash', '-lc', `cat > '${root}/authorized_keys'`], { input: `${authorizedTestKey}\n` });
-    runWsl(['bash', '-lc', script]);
+    if (allowDirectTcpip) {
+      const echoScript = `import pathlib
+import socketserver
+import sys
+
+class EchoHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        while True:
+            data = self.request.recv(65536)
+            if not data:
+                return
+            self.request.sendall(data)
+
+server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), EchoHandler)
+server.daemon_threads = True
+server.allow_reuse_address = False
+pathlib.Path(sys.argv[1]).write_text(str(server.server_address[1]), encoding="ascii")
+server.serve_forever(poll_interval=0.1)
+`;
+      runWsl(['bash', '-lc', `cat > '${root}/echo.py' <<'FIXTURE_ECHO'\n${echoScript}FIXTURE_ECHO`]);
+      runWsl(['systemd-run', '--collect', `--unit=${targetUnit}`, '--property=RuntimeMaxSec=900',
+        'python3', '-u', `${root}/echo.py`, `${root}/target-port`]);
+      startedUnits.add(targetUnit);
+      targetPort = await waitForTargetPort(`${root}/target-port`);
+    }
+    runWsl(['bash', '-lc', createSshdConfigScript()]);
     for (const [index, endpoint] of ['a', 'b'].entries()) {
       const unit = units[index];
       runWsl(['systemd-run', '--collect', `--unit=${unit}`, '--property=RuntimeMaxSec=900',
         '/usr/sbin/sshd', '-D', '-e', '-f', `${root}/sshd-${endpoint}.conf`]);
-      startedUnits += 1;
+      startedUnits.add(unit);
       await waitForUnit(unit);
       await waitForPort(ports[index]);
     }
@@ -204,7 +256,7 @@ LogLevel ERROR
     async function cleanup() {
       if (cleaned) return;
       const stopped = [];
-      for (const unit of units.slice(0, startedUnits)) {
+      for (const unit of [...startedUnits].reverse()) {
         const loadState = await stopUnitAndWait(unit);
         stopped.push({ unit, loadState });
       }
@@ -215,21 +267,26 @@ LogLevel ERROR
         try { free = await portAvailable(port); } catch { free = false; }
         portStates.push({ port, free });
       }
+      const targetPortFree = targetPort ? !targetPortListening(targetPort) : undefined;
       cleaned = true;
       const evidence = {
         fixture: 'WSL Ubuntu transient OpenSSH',
         root,
+        ...(targetPort ? { target: { host: '127.0.0.1', port: targetPort, free: targetPortFree } } : {}),
         units: stopped,
         ports: portStates,
         cleanup: 'transient units stopped; exact per-run directory removed',
       };
       if (evidenceFile) fs.writeFileSync(evidenceFile, `${JSON.stringify(evidence, null, 2)}\n`, { flag: 'wx', encoding: 'utf8' });
-      if (portStates.some((item) => !item.free)) throw new Error('清理後 OpenSSH fixture port 仍被占用');
+      if (portStates.some((item) => !item.free) || targetPortFree === false) {
+        throw new Error('清理後 OpenSSH fixture port 仍被占用');
+      }
     }
 
     return {
       root,
       units,
+      targetPort,
       ports: [...ports],
       fingerprints,
       command(name) {
@@ -239,11 +296,12 @@ LogLevel ERROR
       },
       readCounter,
       isListening,
+      isTargetListening() { return targetPortListening(targetPort); },
       rotateB,
       cleanup,
     };
   } catch (error) {
-    for (const unit of units.slice(0, startedUnits)) {
+    for (const unit of [...startedUnits].reverse()) {
       try { await stopUnitAndWait(unit); } catch { /* 保留原始錯誤與精確 unit 名稱供診斷 */ }
     }
     try { runWsl(['rm', '-rf', '--', root]); } catch { /* 目錄僅在該 run 建立 */ }
