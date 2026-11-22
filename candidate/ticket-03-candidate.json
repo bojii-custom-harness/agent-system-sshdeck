@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "candidateType": "local-source-package",
+  "repository": "https://github.com/bojii-custom-harness/agent-system-sshdeck.git",
+  "sourceCommit": "2c4fe71d3a56684b06d667c204ecf8849a9f31fe",
+  "package": {
+    "name": "agent-system-sshdeck",
+    "version": "0.1.4"
+  },
+  "archive": {
+    "filename": "agent-system-sshdeck-0.1.4.tgz",
+    "bytes": 87100,
+    "sha256": "c2b58bfad8b76366efa2dc59669bc494a3966e53bcd743079ab375d1625e3280"
+  },
+  "reproducibility": {
+    "packRuns": 2,
+    "archiveSha256Matches": true,
+    "fileListsMatch": true,
+    "archiveSizesMatch": true
+  },
+  "files": [
+    ".opencode/skills/agent-system-sshdeck/SKILL.md",
+    ".opencode/skills/agent-system-sshdeck/references/install.md",
+    "README.md",
+    "bin/sshdeck.js",
+    "docs/service-api.md",
+    "docs/service-deployment.md",
+    "lib/service-client.js",
+    "lib/service-contract.js",
+    "lib/service-server.js",
+    "lib/service-store.js",
+    "lib/ssh.js",
+    "package.json",
+    "public/connection-guide.js",
+    "public/terminal.js",
+    "public/workspace.css",
+    "public/workspace.js"
+  ],
+  "publication": {
+    "officialRelease": "not performed",
+    "gitTag": "not created",
+    "registryPublish": "not performed",
+    "deployment": "not performed",
+    "agentSystemDeploymentPin": "unchanged"
+  }
+}
