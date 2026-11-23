@@ -1,1 +1,16 @@
 README.md text eol=lf
+package.json text eol=lf
+.opencode/skills/agent-system-sshdeck/SKILL.md text eol=lf
+.opencode/skills/agent-system-sshdeck/references/install.md text eol=lf
+bin/sshdeck.js text eol=lf
+docs/service-api.md text eol=lf
+docs/service-deployment.md text eol=lf
+lib/service-client.js text eol=lf
+lib/service-contract.js text eol=lf
+lib/service-server.js text eol=lf
+lib/service-store.js text eol=lf
+lib/ssh.js text eol=lf
+public/connection-guide.js text eol=lf
+public/terminal.js text eol=lf
+public/workspace.css text eol=lf
+public/workspace.js text eol=lf

@@ -31,6 +31,7 @@ jobs:
         run: |
           mkdir -p dist
           npm pack --pack-destination dist
+          node -e 'const fs = require("node:fs"); const crypto = require("node:crypto"); const candidate = JSON.parse(fs.readFileSync("candidate/ticket-03-candidate.json", "utf8")); const archive = fs.readFileSync(`dist/${candidate.archive.filename}`); const sha256 = crypto.createHash("sha256").update(archive).digest("hex"); if (candidate.package.version !== require("./package.json").version || candidate.archive.bytes !== archive.length || candidate.archive.sha256 !== sha256) throw new Error("Release archive must match the exact tracked candidate");'
           mv dist/agent-system-sshdeck-*.tgz dist/agent-system-sshdeck.tgz
           npm install --global --ignore-scripts ./dist/agent-system-sshdeck.tgz
           node scripts/verify-release-package.js --installed "$(npm root -g)/agent-system-sshdeck"
