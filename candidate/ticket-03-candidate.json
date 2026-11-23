@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "candidateType": "local-source-package",
   "repository": "https://github.com/bojii-custom-harness/agent-system-sshdeck.git",
-  "sourceCommit": "e979fbbb319fc1c353facd0de140891d8e70757b",
+  "sourceCommit": "e84712869e5ac4fb5747a321e813a90b6e3bb949",
   "package": {
     "name": "agent-system-sshdeck",
     "version": "0.1.6"
