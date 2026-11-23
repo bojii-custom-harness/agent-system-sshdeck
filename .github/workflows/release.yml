@@ -23,7 +23,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: 安裝瀏覽器測試用 Chromium
         run: npx playwright install --with-deps chromium
-      - run: npm test
+      - name: 執行完整測試與 Chromium cases
+        run: SSHDECK_PLAYWRIGHT_MODULE="$(node -p 'require.resolve("playwright")')" npm test
       - name: 驗證套件清單包含 skill 與服務契約
         run: npm run verify:package
       - name: 打包與安裝驗證

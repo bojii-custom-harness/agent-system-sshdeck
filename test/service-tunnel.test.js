@@ -1557,8 +1557,11 @@ test('key unlink、lock、client disconnect、SSH channel error 與 shutdown 都
     sockets.push(socket);
     const shutdownSession = mock.sessions.at(-1);
     const shutdownPeerSession = mock.sessions.filter((session) => session.alias === otherAlias).at(-1);
+    const shutdownSocketClosed = waitForSocketClose(socket);
+    const shutdownPeerSocketClosed = waitForSocketClose(peerSocket);
     await service.closeAsync();
     service = undefined;
+    await Promise.all([shutdownSocketClosed, shutdownPeerSocketClosed]);
     assert.equal(socket.readyState, WebSocket.CLOSED);
     assert.equal(shutdownSession.channel.destroyed, true);
     assert.equal(peerSocket.readyState, WebSocket.CLOSED);

@@ -42,7 +42,7 @@ npm install -g https://github.com/bojii-custom-harness/agent-system-sshdeck/rele
 
 ### 版本與發行
 
-套件版本：`0.1.5`
+套件版本：`0.1.6`
 
 GitHub Actions 會在推送符合 `package.json` 版本的 `v*` tag 後，執行測試、打包及安裝驗證，成功後建立 GitHub Release 與公開下載附件；此套件不發布至 npm registry。
 
