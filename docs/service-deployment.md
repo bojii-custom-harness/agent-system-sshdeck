@@ -14,7 +14,7 @@ SSHDeck service 使用獨立的 `SSHDECK_SERVICE_HOME`，啟動時必須提供�
 | `SSHDECK_UI_TOKEN` | UI adapter；受信任的 server-side grant manager | 管理 UI 所需的 service API role，亦用於直接建立／撤銷 TCP target grant；不授權 tunnel WebSocket。 |
 | `SSHDECK_TUNNEL_TOKEN` | 受信任的 server-side tunnel consumer | 僅用於直接開啟 TCP tunnel WebSocket；不授權讀取或管理 hosts／keys、建立 grant、exec、PTY 或 lock。 |
 
-Service API、token role、target grant 與 WebSocket frame 契約詳見 [`service-api.md`](service-api.md)。三種 Bearer token 與加密 key 必須互不相同；service 啟動會驗證此條件，錯誤設定即拒絕啟動。
+Service API、token role、target grant 與 WebSocket frame 契約詳見 [`service-api.md`](service-api.md)。啟動時，`SSHDECK_SERVICE_TOKEN`、`SSHDECK_UI_TOKEN`、`SSHDECK_TUNNEL_TOKEN` 各須至少 32 個字元；`SSHDECK_UI_TOKEN` 不得等於 `SSHDECK_SERVICE_TOKEN`，而 `SSHDECK_TUNNEL_TOKEN` 不得等於 `SSHDECK_SERVICE_TOKEN`、`SSHDECK_UI_TOKEN` 或 `SSHDECK_ENCRYPTION_KEY`。規格與實作不要求 `SSHDECK_SERVICE_TOKEN`、`SSHDECK_UI_TOKEN` 與 `SSHDECK_ENCRYPTION_KEY` 彼此互異。若上述啟動驗證失敗，service 會拒絕啟動。
 
 ## 連線路徑
 

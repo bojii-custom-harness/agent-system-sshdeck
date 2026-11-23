@@ -176,6 +176,25 @@ test('candidate-eol: fresh core.autocrlf=true checkout reproduces tracked source
   }, 'fresh core.autocrlf=true checkout 必須產生與 tracked manifest 一致的 source candidate');
 });
 
+test('service deployment handoff 僅描述啟動時實際驗證的 token 不同條件', () => {
+  const deployment = fs.readFileSync(path.join(root, 'docs/service-deployment.md'), 'utf8');
+
+  assert.match(
+    deployment,
+    /`SSHDECK_SERVICE_TOKEN`、`SSHDECK_UI_TOKEN`、`SSHDECK_TUNNEL_TOKEN` 各須至少 32 個字元/,
+  );
+  assert.match(deployment, /`SSHDECK_UI_TOKEN` 不得等於 `SSHDECK_SERVICE_TOKEN`/);
+  assert.match(
+    deployment,
+    /`SSHDECK_TUNNEL_TOKEN` 不得等於 `SSHDECK_SERVICE_TOKEN`、`SSHDECK_UI_TOKEN` 或 `SSHDECK_ENCRYPTION_KEY`/,
+  );
+  assert.match(
+    deployment,
+    /規格與實作不要求 `SSHDECK_SERVICE_TOKEN`、`SSHDECK_UI_TOKEN` 與 `SSHDECK_ENCRYPTION_KEY` 彼此互異/,
+  );
+  assert.doesNotMatch(deployment, /三種 Bearer token 與加密 key 必須互不相同/);
+});
+
 test('package candidate 包含 service/API handoff，Bot-readable 文件不嵌入 token sentinel', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   const packageFiles = new Set(manifest.files);
