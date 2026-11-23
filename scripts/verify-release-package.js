@@ -54,20 +54,20 @@ function readArgument(name) {
   return process.argv[index + 1];
 }
 
-function verifyLocalCandidateVersion(root) {
+function verifyPackageVersion(root) {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
-  const candidateVersionPattern = /本機 source candidate 版本：`(\d+\.\d+\.\d+)`（未發布）/g;
-  const candidateVersions = [...readme.matchAll(candidateVersionPattern)];
+  const packageVersionPattern = /套件版本：`(\d+\.\d+\.\d+)`/g;
+  const packageVersions = [...readme.matchAll(packageVersionPattern)];
   assert.equal(
-    candidateVersions.length,
+    packageVersions.length,
     1,
-    'README 必須且只能記載一個未發布的本機 source candidate 版本',
+    'README 必須且只能記載一個套件版本',
   );
   assert.equal(
-    candidateVersions[0][1],
+    packageVersions[0][1],
     manifest.version,
-    'README 本機 source candidate 版本必須與同一 package root 的 package.json.version 一致',
+    'README 套件版本必須與同一 package root 的 package.json.version 一致',
   );
 }
 
@@ -101,7 +101,7 @@ function verifyDocumentation(root) {
 
 function verifySourcePacklist() {
   const root = path.resolve(__dirname, '..');
-  verifyLocalCandidateVersion(root);
+  verifyPackageVersion(root);
   verifyDocumentation(root);
   const npmCli = process.env.npm_execpath;
   assert.ok(npmCli && path.isAbsolute(npmCli), '請透過 npm run verify:package 執行來源套件檢查');
@@ -131,7 +131,7 @@ function verifyInstalled(directory) {
   for (const filePath of requiredFiles) {
     assert.ok(fs.statSync(path.join(root, filePath)).isFile(), `已安裝附件缺少必要檔案：${filePath}`);
   }
-  verifyLocalCandidateVersion(root);
+  verifyPackageVersion(root);
   verifyDocumentation(root);
   console.log(`已安裝套件通過：${manifest.name}@${manifest.version}，skill 與執行檔均可讀取`);
 }

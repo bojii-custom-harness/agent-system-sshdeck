@@ -39,7 +39,7 @@ function writeVerifierFixture(packageRoot, candidateVersion) {
     version: candidateVersion,
   }));
   fs.writeFileSync(path.join(packageRoot, 'README.md'), [
-    `本機 source candidate 版本：\`${candidateVersion}\`（未發布）`,
+    `套件版本：\`${candidateVersion}\``,
     'docs/service-api.md',
     'docs/service-deployment.md',
     'SSHDECK_SERVICE_TOKEN',
@@ -95,7 +95,7 @@ test('package verifier 拒絕 README 與同一 package root 版本不一致的�
     assert.notEqual(mismatched.status, 0, 'verifier 必須拒絕 README 與 package.json 版本不一致');
     assert.match(
       mismatched.stderr,
-      /README 本機 source candidate 版本必須與同一 package root 的 package\.json\.version 一致/,
+      /README 套件版本必須與同一 package root 的 package\.json\.version 一致/,
     );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -201,8 +201,8 @@ test('package candidate 包含 service/API handoff，Bot-readable 文件不嵌�
   assert.ok(fs.statSync(path.join(root, 'README.md')).isFile(), 'README 必須存在於 package source');
   const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
   assert.ok(
-    readme.includes(`本機 source candidate 版本：\`${manifest.version}\`（未發布）`),
-    'README 本機候選版本必須明確等於 package.json.version',
+    readme.includes(`套件版本：\`${manifest.version}\``),
+    'README 套件版本必須明確等於 package.json.version',
   );
   assert.doesNotMatch(
     readme,
