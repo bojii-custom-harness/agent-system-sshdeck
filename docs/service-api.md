@@ -45,9 +45,9 @@ Authorization: Bearer <server-side-token>
 | --- | --- | --- |
 | `GET /v1/health` | 無 | `{ "status": "ok", "protocolVersion": 1 }`；僅健康狀態，不含主機資料。 |
 | `GET /v1/version` | 無 | `{ "name": "sshdeck-service", "version": "...", "protocolVersion": 1 }`；CLI 每次命令先核對 protocol version。 |
-| `GET /v1/hosts` | CLI 或 UI token | 主機摘要、是否關聯服務金鑰及最新檢查狀態；不含私鑰路徑。 |
+| `GET /v1/hosts` | CLI 或 UI token | 主機摘要、是否關聯服務金鑰、目前 `trustedFingerprint` 及最新檢查狀態；不含私鑰路徑。 |
 | `POST /v1/hosts` | UI token | 新增主機 JSON：`alias`、`hostname`、`port`、`username`。不接受 `keyPath`。 |
-| `GET /v1/hosts/{alias}` | CLI 或 UI token | 單一主機摘要。 |
+| `GET /v1/hosts/{alias}` | CLI 或 UI token | 單一主機摘要；`trustedFingerprint` 是目前已信任的 SSH host fingerprint，未信任為 `null`，不是 `check` 快照中的觀測值。Consumer 可用它判定初始化紀錄是否因身分變更失效；此欄位不代表主機目前在線或初始化已完成。 |
 | `PUT /v1/hosts/{alias}`、`DELETE /v1/hosts/{alias}` | UI token | 更新或刪除主機；刪除主機不會自動刪除其金鑰或撤銷遠端授權。更新／刪除會使主機檢查快取失效。 |
 | `POST /v1/hosts/{alias}/key/create` | UI token | 建立 Ed25519 金鑰、加密保存並關聯主機；回傳 `{id, publicKey, guide}`。 |
 | `POST /v1/hosts/{alias}/key/import` | UI token | JSON `{ "privateKey": "<OpenSSH private key>", "passphrase": "<optional>" }`；輸入僅供該次 TLS／受信任內部要求使用，不回傳或記錄。 |

@@ -148,6 +148,8 @@ test('真實 SSHDeck service／雙 OpenSSH targets：信任、持久憑證、串
     assert.equal(unknownA.status, 409);
     assert.equal(unknownA.payload.code, 'HOST_TRUST_REQUIRED');
     assert.equal(unknownA.payload.fingerprint, fixture.fingerprints.a);
+    assert.equal((await ui('/v1/hosts/target-a')).payload.trustedFingerprint, null,
+      '未經信任的觀測指紋不能當作初始化身分');
     const blockedBeforeTrust = await execCli('target-a', 'count-a');
     assert.equal(blockedBeforeTrust.completed.code, 1);
     assert.equal(blockedBeforeTrust.completed.stdout, '');
@@ -161,6 +163,8 @@ test('真實 SSHDeck service／雙 OpenSSH targets：信任、持久憑證、串
     const trustedA = await cliApi('/v1/hosts/target-a/check', { method: 'POST', body: {} });
     assert.equal(trustedA.status, 200);
     assert.equal(trustedA.payload.fingerprint, fixture.fingerprints.a);
+    assert.equal((await ui('/v1/hosts/target-a')).payload.trustedFingerprint, fixture.fingerprints.a,
+      '公開主機資料提供目前信任的穩定指紋，供 consumer 判定初始化失效');
     const wrongFingerprintExec = await cliApi('/v1/hosts/target-a/exec', {
       method: 'POST',
       body: {
